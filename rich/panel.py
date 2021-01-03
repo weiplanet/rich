@@ -2,7 +2,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .box import Box, ROUNDED
 
-from .align import AlignValues
+from .align import AlignMethod
 from .jupyter import JupyterMixin
 from .measure import Measurement, measure_renderables
 from .padding import Padding, PaddingDimensions
@@ -31,6 +31,7 @@ class Panel(JupyterMixin):
         border_style (str, optional): The style of the border. Defaults to "none".
         width (Optional[int], optional): Optional width of panel. Defaults to None to auto-detect.
         padding (Optional[PaddingDimensions]): Optional padding around renderable. Defaults to 0.
+        highlight (bool, optional): Enable automatic highlighting of panel title (if str). Defaults to False.
     """
 
     def __init__(
@@ -39,13 +40,14 @@ class Panel(JupyterMixin):
         box: Box = ROUNDED,
         *,
         title: TextType = None,
-        title_align: AlignValues = "center",
+        title_align: AlignMethod = "center",
         safe_box: Optional[bool] = None,
         expand: bool = True,
         style: StyleType = "none",
         border_style: StyleType = "none",
         width: Optional[int] = None,
         padding: PaddingDimensions = (0, 1),
+        highlight: bool = False,
     ) -> None:
         self.renderable = renderable
         self.box = box
@@ -57,6 +59,7 @@ class Panel(JupyterMixin):
         self.border_style = border_style
         self.width = width
         self.padding = padding
+        self.highlight = highlight
 
     @classmethod
     def fit(
@@ -65,7 +68,7 @@ class Panel(JupyterMixin):
         box: Box = ROUNDED,
         *,
         title: TextType = None,
-        title_align: AlignValues = "center",
+        title_align: AlignMethod = "center",
         safe_box: Optional[bool] = None,
         style: StyleType = "none",
         border_style: StyleType = "none",
@@ -96,6 +99,7 @@ class Panel(JupyterMixin):
             )
             title_text.end = ""
             title_text.plain = title_text.plain.replace("\n", " ")
+            title_text.no_wrap = True
             title_text.expand_tabs()
             title_text.pad(1)
             return title_text
@@ -130,7 +134,7 @@ class Panel(JupyterMixin):
             )
 
         width = child_width + 2
-        child_options = options.update(width=child_width)
+        child_options = options.update(width=child_width, highlight=self.highlight)
         lines = console.render_lines(renderable, child_options, style=style)
 
         line_start = Segment(box.mid_left, border_style)
@@ -158,11 +162,17 @@ class Panel(JupyterMixin):
         _, right, _, left = Padding.unpack(self.padding)
         padding = left + right
         renderables = [self.renderable, _title] if _title else [self.renderable]
-        width = (
-            measure_renderables(console, renderables, max_width - padding - 2).maximum
-            + padding
-            + 2
-        )
+
+        if self.width is None:
+            width = (
+                measure_renderables(
+                    console, renderables, max_width - padding - 2
+                ).maximum
+                + padding
+                + 2
+            )
+        else:
+            width = self.width
         return Measurement(width, width)
 
 

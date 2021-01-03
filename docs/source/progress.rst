@@ -109,11 +109,14 @@ The following column objects are available:
 
 - :class:`~rich.progress.BarColumn` Displays the bar.
 - :class:`~rich.progress.TextColumn` Displays text.
+- :class:`~rich.progress.TimeElapsedColumn` Displays the time elapsed.
 - :class:`~rich.progress.TimeRemainingColumn` Displays the estimated time remaining.
 - :class:`~rich.progress.FileSizeColumn` Displays progress as file size (assumes the steps are bytes).
 - :class:`~rich.progress.TotalFileSizeColumn` Displays total file size (assumes the steps are bytes).
 - :class:`~rich.progress.DownloadColumn` Displays download progress (assumes the steps are bytes).
 - :class:`~rich.progress.TransferSpeedColumn` Displays transfer speed (assumes the steps are bytes.
+- :class:`~rich.progress.SpinnerColumn` Displays a "spinner" animation.
+- :class:`~rich.progress.RenderableColumn` Displays an arbitrary Rich renderable in the column.
 
 To implement your own columns, extend the :class:`~rich.progress.Progress` and use it as you would the other columns.
 
@@ -124,9 +127,9 @@ Print / log
 The Progress class will create an internal Console object which you can access via ``progress.console``. If you print or log to this console, the output will be displayed *above* the progress display. Here's an example::
 
     with Progress() as progress:
-        task = progress.add_task(total=10)
+        task = progress.add_task("twiddling thumbs", total=10)
         for job in range(10):
-            progress.console.print("Working on job #{job}")
+            progress.console.print(f"Working on job #{job}")
             run_job(job)
             progress.advance(task)
 
