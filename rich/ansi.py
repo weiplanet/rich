@@ -117,7 +117,6 @@ class AnsiDecoder:
         Args:
             lines (Iterable[str]): An iterable of lines of terminal output.
 
-
         Yields:
             Text: Marked up Text.
         """
@@ -209,7 +208,7 @@ if __name__ == "__main__":  # pragma: no cover
 
     stdout = io.BytesIO()
 
-    def read(fd):
+    def read(fd: int) -> bytes:
         data = os.read(fd, 1024)
         stdout.write(data)
         return data

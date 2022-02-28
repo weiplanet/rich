@@ -30,7 +30,7 @@ Run tests with the following command:
 make test
 ```
 
-Or if you don't have make, run the following:
+Or if you don't have `make`, run the following:
 
 ```
 pytest --cov-report term-missing --cov=rich tests/ -vv
@@ -50,7 +50,7 @@ make typecheck
 Or if you don't have `make`:
 
 ```
-mypy -p rich --ignore-missing-imports --warn-unreachable
+mypy -p rich --config-file= --ignore-missing-imports --no-implicit-optional --warn-unreachable
 ```
 
 Please add type annotations for all new code.

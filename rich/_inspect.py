@@ -1,9 +1,10 @@
 from __future__ import absolute_import
 
+import inspect
 from inspect import cleandoc, getdoc, getfile, isclass, ismodule, signature
 from typing import Any, Iterable, Optional, Tuple
 
-from .console import RenderableType, RenderGroup
+from .console import Group, RenderableType
 from .highlighter import ReprHighlighter
 from .jupyter import JupyterMixin
 from .panel import Panel
@@ -44,7 +45,7 @@ class Inspect(JupyterMixin):
         self,
         obj: Any,
         *,
-        title: TextType = None,
+        title: Optional[TextType] = None,
         help: bool = False,
         methods: bool = False,
         docs: bool = True,
@@ -79,18 +80,20 @@ class Inspect(JupyterMixin):
 
     def __rich__(self) -> Panel:
         return Panel.fit(
-            RenderGroup(*self._render()),
+            Group(*self._render()),
             title=self.title,
             border_style="scope.border",
             padding=(0, 1),
         )
 
-    def _get_signature(self, name: str, obj: Any) -> Text:
+    def _get_signature(self, name: str, obj: Any) -> Optional[Text]:
         """Get a signature for a callable."""
         try:
             _signature = str(signature(obj)) + ":"
         except ValueError:
             _signature = "(...)"
+        except TypeError:
+            return None
 
         source_filename: Optional[str] = None
         try:
@@ -104,8 +107,17 @@ class Inspect(JupyterMixin):
         signature_text = self.highlighter(_signature)
 
         qualname = name or getattr(obj, "__qualname__", name)
+
+        # If obj is a module, there may be classes (which are callable) to display
+        if inspect.isclass(obj):
+            prefix = "class"
+        else:
+            prefix = "def"
+
         qual_signature = Text.assemble(
-            ("def ", "inspect.def"), (qualname, "inspect.callable"), signature_text
+            (f"{prefix} ", f"inspect.{prefix}"),
+            (qualname, "inspect.callable"),
+            signature_text,
         )
 
         return qual_signature
@@ -142,17 +154,20 @@ class Inspect(JupyterMixin):
         highlighter = self.highlighter
 
         if callable(obj):
-            yield self._get_signature("", obj)
-            yield ""
+            signature = self._get_signature("", obj)
+            if signature is not None:
+                yield signature
+                yield ""
 
-        _doc = getdoc(obj)
-        if _doc is not None:
-            if not self.help:
-                _doc = _first_paragraph(_doc)
-            doc_text = Text(_reformat_doc(_doc), style="inspect.help")
-            doc_text = highlighter(doc_text)
-            yield doc_text
-            yield ""
+        if self.docs:
+            _doc = getdoc(obj)
+            if _doc is not None:
+                if not self.help:
+                    _doc = _first_paragraph(_doc)
+                doc_text = Text(_reformat_doc(_doc), style="inspect.help")
+                doc_text = highlighter(doc_text)
+                yield doc_text
+                yield ""
 
         if self.value and not (isclass(obj) or callable(obj) or ismodule(obj)):
             yield Panel(
@@ -178,67 +193,29 @@ class Inspect(JupyterMixin):
             if callable(value):
                 if not self.methods:
                     continue
+
                 _signature_text = self._get_signature(key, value)
+                if _signature_text is None:
+                    add_row(key_text, Pretty(value, highlighter=highlighter))
+                else:
+                    if self.docs:
+                        docs = getdoc(value)
+                        if docs is not None:
+                            _doc = _reformat_doc(str(docs))
+                            if not self.help:
+                                _doc = _first_paragraph(_doc)
+                            _signature_text.append("\n" if "\n" in _doc else " ")
+                            doc = highlighter(_doc)
+                            doc.stylize("inspect.doc")
+                            _signature_text.append(doc)
 
-                if self.docs:
-                    docs = getdoc(value)
-                    if docs is not None:
-                        _doc = _reformat_doc(str(docs))
-                        if not self.help:
-                            _doc = _first_paragraph(_doc)
-                        _signature_text.append("\n" if "\n" in _doc else " ")
-                        doc = highlighter(_doc)
-                        doc.stylize("inspect.doc")
-                        _signature_text.append(doc)
-
-                add_row(key_text, _signature_text)
+                    add_row(key_text, _signature_text)
             else:
                 add_row(key_text, Pretty(value, highlighter=highlighter))
         if items_table.row_count:
             yield items_table
-        else:
-            yield self.highlighter(
-                Text.from_markup(
-                    f"[i][b]{not_shown_count}[/b] attribute(s) not shown.[/i] Run [b][red]inspect[/red]([not b]inspect[/])[/b] for options."
-                )
+        elif not_shown_count:
+            yield Text.from_markup(
+                f"[b cyan]{not_shown_count}[/][i] attribute(s) not shown.[/i] "
+                f"Run [b][magenta]inspect[/]([not b]inspect[/])[/b] for options."
             )
-
-
-if __name__ == "__main__":  # type: ignore
-    from rich import print
-
-    inspect = Inspect({}, docs=True, methods=True, dunder=True)
-    print(inspect)
-
-    t = Text("Hello, World")
-    print(Inspect(t))
-
-    from rich.style import Style
-    from rich.color import Color
-
-    print(Inspect(Style.parse("bold red on black"), methods=True, docs=True))
-    print(Inspect(Color.parse("#ffe326"), methods=True, docs=True))
-
-    from rich import get_console
-
-    print(Inspect(get_console(), methods=False))
-
-    print(Inspect(open("foo.txt", "wt"), methods=False))
-
-    print(Inspect("Hello", methods=False, dunder=True))
-    print(Inspect(inspect, methods=False, dunder=False, docs=False))
-
-    class Foo:
-        @property
-        def broken(self):
-            1 / 0
-
-    f = Foo()
-    print(Inspect(f))
-
-    print(Inspect(object, dunder=True))
-
-    print(Inspect(None, dunder=False))
-
-    print(Inspect(str, help=True))
-    print(Inspect(1, help=False))

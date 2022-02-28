@@ -43,7 +43,9 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.viewcode",
     "sphinx.ext.napoleon",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.autosectionlabel",
+    "sphinx_copybutton",
 ]
 
 # Add any paths that contain templates here, relative to this directory.

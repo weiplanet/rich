@@ -1,4 +1,4 @@
-"""Tests for the higlighter classes."""
+"""Tests for the highlighter classes."""
 import pytest
 from typing import List
 
@@ -40,6 +40,16 @@ highlight_tests = [
             Span(4, 9, "repr.str"),
         ],
     ),
+    (
+        "<Permission.WRITE|READ: 3>",
+        [
+            Span(0, 1, "repr.tag_start"),
+            Span(1, 23, "repr.tag_name"),
+            Span(23, 25, "repr.tag_contents"),
+            Span(25, 26, "repr.tag_end"),
+            Span(24, 25, "repr.number"),
+        ],
+    ),
     ("( )", [Span(0, 1, "repr.brace"), Span(2, 3, "repr.brace")]),
     ("[ ]", [Span(0, 1, "repr.brace"), Span(2, 3, "repr.brace")]),
     ("{ }", [Span(0, 1, "repr.brace"), Span(2, 3, "repr.brace")]),
@@ -70,6 +80,7 @@ highlight_tests = [
     ('"hello"', [Span(0, 7, "repr.str")]),
     ('"""hello"""', [Span(0, 11, "repr.str")]),
     ("\\'foo'", []),
+    ("it's no 'string'", [Span(8, 16, "repr.str")]),
 ]
 
 

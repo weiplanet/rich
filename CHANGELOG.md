@@ -5,6 +5,573 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Added options to TimeRemainingColumn to render a compact time format and render elapsed time when a task is
+  finished. https://github.com/Textualize/rich/pull/1992
+- Added ProgressColumn `MofNCompleteColumn` to display raw `completed/total` column (similar to DownloadColumn,
+  but displays values as ints, does not convert to floats or add bit/bytes units).
+  https://github.com/Textualize/rich/pull/1941
+
+### Fixed
+
+- In Jupyter mode make the link target be set to "\_blank"
+- Fix some issues with markup handling around "[" characters https://github.com/Textualize/rich/pull/1950
+- Fix syntax lexer guessing.
+- Fixed Pretty measure not respecting expand_all https://github.com/Textualize/rich/issues/1998
+- Collapsed definitions for single-character spinners, to save memory and reduce import time.
+
+### Changed
+
+- Improved support for enum.Flag in ReprHighlighter https://github.com/Textualize/rich/pull/1920
+- Tree now respects justify=None, i.e. won't pad to right https://github.com/Textualize/rich/issues/1690
+
+## [11.2.0] - 2022-02-08
+
+### Added
+
+- Add support for US spelling of "gray" in ANSI color names https://github.com/Textualize/rich/issues/1890
+- Added `rich.diagnose.report` to expose environment debugging logic as function https://github.com/Textualize/rich/pull/1917
+- Added classmethod `Progress.get_default_columns()` to get the default list of progress bar columns https://github.com/Textualize/rich/pull/1894
+
+### Fixed
+
+- Fixed performance issue in measuring text
+
+### Fixed
+
+- Fixed test failures on PyPy3 https://github.com/Textualize/rich/pull/1904
+
+## [11.1.0] - 2022-01-28
+
+### Added
+
+- Workaround for edge case of object from Faiss with no `__class__` https://github.com/Textualize/rich/issues/1838
+- Add Traditional Chinese readme
+- Add `Syntax.guess_lexer`, add support for more lexers (e.g. Django templates etc.) https://github.com/Textualize/rich/pull/1869
+- Add `lexer` parameter to `Syntax.from_path` to allow for overrides https://github.com/Textualize/rich/pull/1873
+
+### Fixed
+
+- Workaround for edge case of object from Faiss with no `__class__` https://github.com/Textualize/rich/issues/1838
+- Ensure `Syntax` always justifies left https://github.com/Textualize/rich/pull/1872
+- Handle classes in inspect when methods=True https://github.com/Textualize/rich/pull/1874
+
+## [11.0.0] - 2022-01-09
+
+### Added
+
+- Added max_depth arg to pretty printing https://github.com/Textualize/rich/issues/1585
+- Added `vertical_align` to Table.add_row https://github.com/Textualize/rich/issues/1590
+
+### Fixed
+
+- Fixed issue with pretty repr in jupyter notebook https://github.com/Textualize/rich/issues/1717
+- Fix Traceback theme defaults override user supplied styles https://github.com/Textualize/rich/issues/1786
+
+### Changed
+
+- **breaking** Deprecated rich.console.RenderGroup, now named rich.console.Group
+- **breaking** `Syntax.__init__` parameter `lexer_name` renamed to `lexer`
+- Syntax constructor accepts both str and now a pygments lexer https://github.com/Textualize/rich/pull/1748
+
+## [10.16.2] - 2021-01-02
+
+### Fixed
+
+- Fixed @ not being escaped in markup
+
+## [10.16.1] - 2021-12-15
+
+### Fixed
+
+- Fixed issues with overlapping tags https://github.com/willmcgugan/rich/issues/1755
+
+## [10.16.0] - 2021-12-12
+
+### Fixed
+
+- Double print of progress bar in Jupyter https://github.com/willmcgugan/rich/issues/1737
+
+### Added
+
+- Added Text.markup property https://github.com/willmcgugan/rich/issues/1751
+
+## [10.15.2] - 2021-12-02
+
+### Fixed
+
+- Deadlock issue https://github.com/willmcgugan/rich/issues/1734
+
+## [10.15.1] - 2021-11-29
+
+### Fixed
+
+- Reverted thread-safety fix for Live that introduced deadlock potential
+
+## [10.15.0] - 2021-11-28
+
+### Added
+
+- Added dynamic_progress.py to examples
+- Added ConsoleOptions.update_height
+- Fixed Padding not respecting height
+
+### Changed
+
+- Some optimizations for simple strings (with only single cell widths)
+
+### Fixed
+
+- Fixed issue with progress bar not rendering markup https://github.com/willmcgugan/rich/issues/1721
+- Fixed race condition when exiting Live https://github.com/willmcgugan/rich/issues/1530
+
+## [10.14.0] - 2021-11-16
+
+### Fixed
+
+- Fixed progress speed not updating when total doesn't change
+- Fixed superfluous new line in Status https://github.com/willmcgugan/rich/issues/1662
+- Fixed Windows legacy width again
+- Fixed infinite loop in set_cell_size https://github.com/willmcgugan/rich/issues/1682
+
+### Added
+
+- Added file protocol to URL highlighter https://github.com/willmcgugan/rich/issues/1681
+- Added rich.protocol.rich_cast
+
+### Changed
+
+- Allowed `__rich__` to work recursively
+- Allowed Text classes to work with sep in print https://github.com/willmcgugan/rich/issues/1689
+
+### Added
+
+- Added a `rich.text.Text.from_ansi` helper method for handling pre-formatted input strings https://github.com/willmcgugan/rich/issues/1670
+
+## [10.13.0] - 2021-11-07
+
+### Added
+
+- Added json.dumps parameters to print_json https://github.com/willmcgugan/rich/issues/1638
+
+### Fixed
+
+- Fixed an edge case bug when console module try to detect if they are in a tty at the end of a pytest run
+- Fixed a bug where logging handler raises an exception when running with pythonw (related to https://bugs.python.org/issue13807)
+- Fixed issue with TERM env vars that have more than one hyphen https://github.com/willmcgugan/rich/issues/1640
+- Fixed missing new line after progress bar when terminal is not interactive https://github.com/willmcgugan/rich/issues/1606
+- Fixed exception in IPython when disabling pprint with %pprint https://github.com/willmcgugan/rich/issues/1646
+- Fixed issue where values longer than the console width produced invalid JSON https://github.com/willmcgugan/rich/issues/1653
+- Fixes trailing comma when pretty printing dataclass with last field repr=False https://github.com/willmcgugan/rich/issues/1599
+
+## Changed
+
+- Markdown codeblocks now word-wrap https://github.com/willmcgugan/rich/issues/1515
+
+## [10.12.0] - 2021-10-06
+
+### Updated
+
+- Official Py3.10 release
+
+### Fixed
+
+- Fixed detection of custom repr when pretty printing dataclasses
+
+## [10.11.0] - 2021-09-24
+
+### Added
+
+- Added `suppress` parameter to tracebacks
+- Added `max_frames` parameter to tracebacks
+
+## [10.10.0] - 2021-09-18
+
+### Added
+
+- Added stdin support to `rich.json`
+
+### Fixed
+
+- Fixed pretty printing of objects with fo magic with **getattr** https://github.com/willmcgugan/rich/issues/1492
+
+## [10.9.0] - 2021-08-29
+
+### Added
+
+- Added data parameter to print_json method / function
+- Added an --indent parameter to python -m rich.json
+
+### Changed
+
+- Changed default indent of JSON to 2 (down from 4)
+- Changed highlighting of JSON keys to new style (bold blue)
+
+## [10.8.0] - 2021-08-28
+
+### Added
+
+- Added Panel.subtitle
+- Added Panel.subtitle_align
+- Added rich.json.JSON
+- Added rich.print_json and Console.print_json
+
+### Fixed
+
+- Fixed a bug where calling `rich.reconfigure` within a `pytest_configure` hook would lead to a crash
+- Fixed highlight not being passed through options https://github.com/willmcgugan/rich/issues/1404
+
+## [10.7.0] - 2021-08-05
+
+### Added
+
+- Added Text.apply_meta
+- Added meta argument to Text.assemble
+- Added Style.from_meta
+- Added Style.on
+- Added Text.on
+
+### Changed
+
+- Changed `RenderGroup` to `Group` and `render_group` to `group` (old names remain for compatibility but will be deprecated in the future)
+- Changed `rich.repr.RichReprResult` to `rich.repr.Result` (old names remain for compatibility but will be deprecated in the future)
+- Changed meta serialization to use pickle rather than marshal to permit callables
+
+## [10.6.0] - 2021-07-12
+
+### Deprecated
+
+- Added deprecation warning for tabulate_mapping which will be removed in v11.0.0
+
+### Added
+
+- Added precision argument to filesize.decimal
+- Added separator argument to filesize.decimal
+- Added \_rich_traceback_guard to Traceback
+- Added emoji_variant to Console
+- Added -emoji and -text variant selectors to emoji code
+
+### Fixed
+
+- Fixed issue with adjoining color tags https://github.com/willmcgugan/rich/issues/1334
+
+### Changed
+
+- Changed Console.size to use unproxied stdin and stdout
+
+## [10.5.0] - 2021-07-05
+
+### Fixed
+
+- Fixed Pandas objects not pretty printing https://github.com/willmcgugan/rich/issues/1305
+- Fixed https://github.com/willmcgugan/rich/issues/1256
+- Fixed typing with rich.repr.auto decorator
+- Fixed repr error formatting https://github.com/willmcgugan/rich/issues/1326
+
+### Added
+
+- Added new_line_start argument to Console.print
+- Added Segment.divide method
+- Added Segment.split_cells method
+- Added segment.SegmentLines class
+
+## [10.4.0] - 2021-06-18
+
+### Added
+
+- Added Style.meta
+- Added rich.repr.auto decorator
+
+### Fixed
+
+- Fixed error pretty printing classes with special **rich_repr** method
+
+## [10.3.0] - 2021-06-09
+
+### Added
+
+- Added Console.size setter
+- Added Console.width setter
+- Added Console.height setter
+- Added angular style Rich reprs
+- Added an IPython extension. Load via `%load_ext rich`
+
+### Changed
+
+- Changed the logic for retrieving the calling frame in console logs to a faster one for the Python implementations that support it.
+
+## [10.2.2] - 2021-05-19
+
+### Fixed
+
+- Fixed status not rendering console markup https://github.com/willmcgugan/rich/issues/1244
+
+## [10.2.1] - 2021-05-17
+
+### Fixed
+
+- Fixed panel in Markdown exploding https://github.com/willmcgugan/rich/issues/1234
+
+## [10.2.0] - 2021-05-12
+
+### Added
+
+- Added syntax for call, i.e. "Foo(bar)"
+- Added Console.measure as a convenient alias for Measurement.get
+- Added support for pretty printing attrs objects
+- Added mappingproxy to pretty print
+- Added UserDict and UserList support to pretty printer
+
+### Changed
+
+- Changed colorama init to set strip=False
+- Changed highlighter for False, True, None to not match in the middle of a word. i.e. NoneType is no longer highlighted as None
+
+### Fixed
+
+- Fixed initial blank lines removed from Syntax https://github.com/willmcgugan/rich/issues/1214
+
+## [10.1.0] - 2021-04-03
+
+### Fixed
+
+- Fixed support for jupyter qtconsole and similar Jupyter environments
+
+## [10.0.1] - 2021-03-30
+
+### Fixed
+
+- Fixed race condition that duplicated lines in progress https://github.com/willmcgugan/rich/issues/1144
+
+## [10.0.0] - 2021-03-27
+
+### Changed
+
+- Made pydoc import lazy as at least one use found it slow to import https://github.com/willmcgugan/rich/issues/1104
+- Modified string highlighting to not match in the middle of a word, so that apostrophes are not considered strings
+- New way of encoding control codes in Segment
+- New signature for Control class
+- Changed Layout.split to use new Splitter class
+- Improved layout.tree
+- Changed default theme color for repr.number to cyan
+- `__rich_measure__` signature changed to accept ConsoleOptions rather than max_width
+- `text` parameter to rich.spinner.Spinner changed to RenderableType
+
+### Added
+
+- Added `__rich_repr__` protocol method to Pretty
+- Added rich.region.Region
+- Added ConsoleOptions.update_dimensions
+- Added rich.console.ScreenUpdate
+- Added Console.is_alt_screen
+- Added Control.segment, Control.bell, Control.home, Control.move_to, Control.clear, Control.show_cursor, Control.alt_screen
+- Added Console.update_screen and Console.update_screen_lines
+- Added Layout.add_split, Layout.split_column, Layout.split_row, layout.refresh
+- Added new Rich repr protocol `__rich_repr__`
+
+### Fixed
+
+- Fixed table style taking precedence over row style https://github.com/willmcgugan/rich/issues/1129
+- Fixed incorrect measurement of Text with new lines and whitespace https://github.com/willmcgugan/rich/issues/1133
+- Made type annotations consistent for various `total` keyword arguments in `rich.progress` and rich.`progress_bar`
+- Disabled Progress no longer displays itself when starting https://github.com/willmcgugan/rich/pull/1125
+- Animations no longer reset when updating rich.status.Status
+
+## [9.13.0] - 2021-03-06
+
+### Added
+
+- Pretty printer now supports dataclasses
+
+### Fixed
+
+- Fixed Syntax background https://github.com/willmcgugan/rich/issues/1088
+- Fix for double tracebacks when no formatter https://github.com/willmcgugan/rich/issues/1079
+
+### Changed
+
+- Added ws and wss to url highlighter
+
+## [9.12.4] - 2021-03-01
+
+### Fixed
+
+- Fixed custom formatters with rich tracebacks in RichHandler https://github.com/willmcgugan/rich/issues/1079
+
+### Changed
+
+- Allow highly compressed table cells to go to 0 width
+- Optimization to remove empty styles in various places
+
+## [9.12.3] - 2021-02-28
+
+### Changed
+
+- Optimized Padding
+
+## [9.12.2] - 2021-02-27
+
+### Added
+
+- Added ConsoleOptions.copy
+
+### Changed
+
+- Optimized ConsoleOptions.update
+
+## [9.12.1] - 2021-02-27
+
+### Fixed
+
+- Fixed deadlock in Progress https://github.com/willmcgugan/rich/issues/1061
+
+### Added
+
+- Added Task.finished_speed
+
+### Changed
+
+- Froze TransferSpeedColumn speed when task is finished
+- Added SIGINT handler to downloader.py example
+- Optimization for large tables
+
+## [9.12.0] - 2021-02-24
+
+### Fixed
+
+- Fixed issue with Syntax and missing lines in Layout https://github.com/willmcgugan/rich/issues/1050
+- Fixed issue with nested markdown elements https://github.com/willmcgugan/rich/issues/1036
+- Fixed new lines not invoking render hooks https://github.com/willmcgugan/rich/issues/1052
+- Fixed Align setting height to child https://github.com/willmcgugan/rich/issues/1057
+
+### Changed
+
+- Printing a table with no columns now result in a blank line https://github.com/willmcgugan/rich/issues/1044
+
+### Added
+
+- Added height to Panel
+
+## [9.11.1] - 2021-02-20
+
+### Fixed
+
+- Fixed table with expand=False not expanding when justify="center"
+- Fixed single renderable in Layout not respecting height
+- Fixed COLUMNS and LINES env var https://github.com/willmcgugan/rich/issues/1019
+- Layout now respects minimum_size when fixes sizes are greater than available space
+- HTML export now changes link underline score to match terminal https://github.com/willmcgugan/rich/issues/1009
+
+### Changed
+
+- python -m rich.markdown and rich.syntax show usage with no file
+
+### Added
+
+- Added height parameter to Layout
+- Added python -m rich.segment
+
+## [9.11.0] - 2021-02-15
+
+### Fixed
+
+- Fixed error message for tracebacks with broken `__str__` https://github.com/willmcgugan/rich/issues/980
+- Fixed markup edge case https://github.com/willmcgugan/rich/issues/987
+
+### Added
+
+- Added cheeky sponsorship request to test card
+- Added `quiet` argument to Console constructor
+- Added support for a callback function to format timestamps (allows presentation of milliseconds)
+- Added Console.set_alt_screen and Console.screen
+- Added height to ConsoleOptions
+- Added `vertical` parameter to Align
+- Added Layout class
+
+### Changed
+
+- Pretty.overflow now defaults to None
+- Panel now respects options.height
+- Traceback lexer defaults to Python if no extension on source
+- Added ConsoleDimensions size attribute to ConsoleOptions so that size can't change mid-render
+
+## [9.10.0] - 2021-01-27
+
+### Changed
+
+- Some optimizations for Text
+- Further optimized Tracebacks by not tokenizing code more that necessary
+- Table Column.header_style and Column.footer_style are now added to Table header/footer style
+
+## [9.9.0] - 2021-01-23
+
+### Changed
+
+- Extended Windows palette to 16 colors
+- Modified windows palette to Windows 10 colors
+- Change regex for attrib_name to be more performant
+- Optimized traceback generation
+
+### Fixed
+
+- Fix double line tree guides on Windows
+- Fixed Tracebacks ignoring initial blank lines
+- Partial fix for tracebacks not finding source after chdir
+- Fixed error message when code in tracebacks doesn't have an extension https://github.com/willmcgugan/rich/issues/996
+
+### Added
+
+- Added post_style argument to Segment.apply_style
+
+## [9.8.2] - 2021-01-15
+
+### Fixed
+
+- Fixed deadlock in live https://github.com/willmcgugan/rich/issues/927
+
+## [9.8.1] - 2021-01-13
+
+### Fixed
+
+- Fixed rich.inspect failing with attributes that claim to be callable but aren't https://github.com/willmcgugan/rich/issues/916
+
+## [9.8.0] - 2021-01-11
+
+### Added
+
+- Added **rich_measure** for tree
+- Added rich.align.VerticalCenter
+
+### Changed
+
+- The `style` argument on Align now applies to background only
+- Changed display of progress bars in no_color mode for clarity
+- Console property `size` will fall back to getting the terminal size of stdout it stdin fails, this allows size to be correctly determined when piping
+
+### Fixed
+
+- Fixed panel cropping when shrunk too bar
+- Allow passing markdown over STDIN when using `python -m rich.markdown`
+- Fix printing MagicMock.mock_calls https://github.com/willmcgugan/rich/issues/903
+
+## [9.7.0] - 2021-01-09
+
+### Added
+
+- Added rich.tree
+- Added no_color argument to Console
+
+## [9.6.2] - 2021-01-07
+
+### Fixed
+
+- Fixed markup escaping edge case https://github.com/willmcgugan/rich/issues/878
+- Double tag escape, i.e. `"\\[foo]"` results in a backslash plus `[foo]` tag
+- Fixed header_style not applying to headers in positional args https://github.com/willmcgugan/rich/issues/953
+
 ## [9.6.1] - 2020-12-31
 
 ### Fixed
@@ -62,7 +629,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [9.4.0] - 2020-12-12
 
-### Added
+### Added
 
 - Added rich.live https://github.com/willmcgugan/rich/pull/382
 - Added algin parameter to Rule and Console.rule
@@ -71,7 +638,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added style parameter to Console.log
 - Added rich.diagnose command
 
-### Changed
+### Changed
 
 - Table.add_row style argument now applies to entire line and not just cells
 - Added end_section parameter to Table.add_row to force a line underneath row
@@ -82,7 +649,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [9.3.0] - 2020-12-1
 
-### Added
+### Added
 
 - Added get_datetime parameter to Console, to allow for repeatable tests
 - Added get_time parameter to Console
@@ -182,7 +749,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [8.0.0] - 2020-10-03
 
-### Added
+### Added
 
 - Added Console.bell method
 - Added Set to types that Console.print will automatically pretty print
@@ -207,7 +774,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Console.begin_capture, Console.end_capture and Console.capture
 - Added Table.title_justify and Table.caption_justify https://github.com/willmcgugan/rich/issues/301
 
-### Changed
+### Changed
 
 - Improved formatting of exceptions
 - Enabled Rich exceptions in logging https://github.com/taliraj
@@ -226,7 +793,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Text.remove_suffix
 - Added Text.append_tokens
 
-### Changed
+### Changed
 
 - Text.tabs_to_spaces was renamed to Text.expand_tabs, which works in place rather than returning a new instance
 - Renamed Column.index to Column.\_index
@@ -510,7 +1077,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 
 ## [3.0.2] - 2020-07-02
 
-### Added
+### Added
 
 - Added rich.styled.Styled class to apply styles to renderable
 - Table.add_row now has an optional style parameter
@@ -623,7 +1190,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 
 - Added 'transient' option to Progress
 
-### Changed
+### Changed
 
 - Truncated overly long text in Rule with ellipsis overflow
 
@@ -745,7 +1312,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 
 - Optimizations for Segment, Console and Table
 
-### Added
+### Added
 
 - Added Console.clear method
 - Added exporting of links to HTML
@@ -767,7 +1334,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 
 ## [1.1.6] - 2020-05-17
 
-### Added
+### Added
 
 - Added rich.align.Align class
 - Added justify argument to Console.print and console.log
@@ -786,7 +1353,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 - Fixes for legacy windows: Bar, Panel, and Rule now use ASCII characters
 - show_cursor is now a no-op on legacy windows
 
-### Added
+### Added
 
 - Added Console.input
 
@@ -1048,7 +1615,7 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 
 ### Fixed
 
-- Readme links in Pypi
+- Readme links in PyPI
 
 ## [0.4.0] - 2020-02-22
 
@@ -1087,3 +1654,143 @@ Major version bump for a breaking change to `Text.stylize signature`, which corr
 ### Added
 
 - First official release, API still to be stabilized
+
+[Unreleased]: https://github.com/willmcgugan/rich/compare/v11.0.0...HEAD
+[11.2.0]: https://github.com/willmcgugan/rich/compare/v11.1.0...v11.2.0
+[11.1.0]: https://github.com/willmcgugan/rich/compare/v11.0.0...v11.1.0
+[11.0.0]: https://github.com/willmcgugan/rich/compare/v10.16.1...v11.0.0
+[10.16.2]: https://github.com/willmcgugan/rich/compare/v10.16.1...v10.16.2
+[10.16.1]: https://github.com/willmcgugan/rich/compare/v10.16.0...v10.16.1
+[10.16.0]: https://github.com/willmcgugan/rich/compare/v10.15.2...v10.16.0
+[10.15.2]: https://github.com/willmcgugan/rich/compare/v10.15.1...v10.15.2
+[10.15.1]: https://github.com/willmcgugan/rich/compare/v10.15.0...v10.15.1
+[10.15.0]: https://github.com/willmcgugan/rich/compare/v10.14.0...v10.15.0
+[10.14.0]: https://github.com/willmcgugan/rich/compare/v10.13.0...v10.14.0
+[10.13.0]: https://github.com/willmcgugan/rich/compare/v10.12.0...v10.13.0
+[10.12.0]: https://github.com/willmcgugan/rich/compare/v10.11.0...v10.12.0
+[10.11.0]: https://github.com/willmcgugan/rich/compare/v10.10.0...v10.11.0
+[10.10.0]: https://github.com/willmcgugan/rich/compare/v10.9.0...v10.10.0
+[10.9.0]: https://github.com/willmcgugan/rich/compare/v10.8.0...v10.9.0
+[10.8.0]: https://github.com/willmcgugan/rich/compare/v10.7.0...v10.8.0
+[10.7.0]: https://github.com/willmcgugan/rich/compare/v10.6.0...v10.7.0
+[10.6.0]: https://github.com/willmcgugan/rich/compare/v10.5.0...v10.6.0
+[10.5.0]: https://github.com/willmcgugan/rich/compare/v10.4.0...v10.5.0
+[10.4.0]: https://github.com/willmcgugan/rich/compare/v10.3.0...v10.4.0
+[10.3.0]: https://github.com/willmcgugan/rich/compare/v10.2.2...v10.3.0
+[10.2.2]: https://github.com/willmcgugan/rich/compare/v10.2.1...v10.2.2
+[10.2.1]: https://github.com/willmcgugan/rich/compare/v10.2.0...v10.2.1
+[10.2.0]: https://github.com/willmcgugan/rich/compare/v10.1.0...v10.2.0
+[10.1.0]: https://github.com/willmcgugan/rich/compare/v10.0.1...v10.1.0
+[10.0.1]: https://github.com/willmcgugan/rich/compare/v10.0.0...v10.0.1
+[10.0.0]: https://github.com/willmcgugan/rich/compare/v9.13.0...v10.0.0
+[9.13.0]: https://github.com/willmcgugan/rich/compare/v9.12.4...v9.13.0
+[9.12.4]: https://github.com/willmcgugan/rich/compare/v9.12.3...v9.12.4
+[9.12.3]: https://github.com/willmcgugan/rich/compare/v9.12.2...v9.12.3
+[9.12.2]: https://github.com/willmcgugan/rich/compare/v9.12.1...v9.12.2
+[9.12.1]: https://github.com/willmcgugan/rich/compare/v9.12.0...v9.12.1
+[9.12.0]: https://github.com/willmcgugan/rich/compare/v9.11.1...v9.12.0
+[9.11.1]: https://github.com/willmcgugan/rich/compare/v9.11.0...v9.11.1
+[9.11.0]: https://github.com/willmcgugan/rich/compare/v9.10.0...v9.11.0
+[9.10.0]: https://github.com/willmcgugan/rich/compare/v9.9.0...v9.10.0
+[9.9.0]: https://github.com/willmcgugan/rich/compare/v9.8.2...v9.9.0
+[9.8.2]: https://github.com/willmcgugan/rich/compare/v9.8.1...v9.8.2
+[9.8.1]: https://github.com/willmcgugan/rich/compare/v9.8.0...v9.8.1
+[9.8.0]: https://github.com/willmcgugan/rich/compare/v9.7.0...v9.8.0
+[9.7.0]: https://github.com/willmcgugan/rich/compare/v9.6.2...v9.7.0
+[9.6.2]: https://github.com/willmcgugan/rich/compare/v9.6.1...v9.6.2
+[9.6.1]: https://github.com/willmcgugan/rich/compare/v9.6.0...v9.6.1
+[9.6.0]: https://github.com/willmcgugan/rich/compare/v9.5.1...v9.6.0
+[9.5.1]: https://github.com/willmcgugan/rich/compare/v9.5.0...v9.5.1
+[9.5.0]: https://github.com/willmcgugan/rich/compare/v9.4.0...v9.5.0
+[9.4.0]: https://github.com/willmcgugan/rich/compare/v9.3.0...v9.4.0
+[9.3.0]: https://github.com/willmcgugan/rich/compare/v9.2.0...v9.3.0
+[9.2.0]: https://github.com/willmcgugan/rich/compare/v9.1.0...v9.2.0
+[9.1.0]: https://github.com/willmcgugan/rich/compare/v9.0.1...v9.1.0
+[9.0.1]: https://github.com/willmcgugan/rich/compare/v9.0.0...v9.0.1
+[9.0.0]: https://github.com/willmcgugan/rich/compare/v8.0.0...v9.0.0
+[8.0.0]: https://github.com/willmcgugan/rich/compare/v7.1.0...v8.0.0
+[7.1.0]: https://github.com/willmcgugan/rich/compare/v7.0.0...v7.1.0
+[7.0.0]: https://github.com/willmcgugan/rich/compare/v6.2.0...v7.0.0
+[6.2.0]: https://github.com/willmcgugan/rich/compare/v6.1.2...v6.2.0
+[6.1.2]: https://github.com/willmcgugan/rich/compare/v6.1.1...v6.1.2
+[6.1.1]: https://github.com/willmcgugan/rich/compare/v6.1.0...v6.1.1
+[6.1.0]: https://github.com/willmcgugan/rich/compare/v6.0.0...v6.1.0
+[6.0.0]: https://github.com/willmcgugan/rich/compare/v5.2.1...v6.0.0
+[5.2.1]: https://github.com/willmcgugan/rich/compare/v5.2.0...v5.2.1
+[5.2.0]: https://github.com/willmcgugan/rich/compare/v5.1.2...v5.2.0
+[5.1.2]: https://github.com/willmcgugan/rich/compare/v5.1.1...v5.1.2
+[5.1.1]: https://github.com/willmcgugan/rich/compare/v5.1.0...v5.1.1
+[5.1.0]: https://github.com/willmcgugan/rich/compare/v5.0.0...v5.1.0
+[5.0.0]: https://github.com/willmcgugan/rich/compare/v4.2.2...v5.0.0
+[4.2.2]: https://github.com/willmcgugan/rich/compare/v4.2.1...v4.2.2
+[4.2.1]: https://github.com/willmcgugan/rich/compare/v4.2.0...v4.2.1
+[4.2.0]: https://github.com/willmcgugan/rich/compare/v4.1.0...v4.2.0
+[4.1.0]: https://github.com/willmcgugan/rich/compare/v4.0.0...v4.1.0
+[4.0.0]: https://github.com/willmcgugan/rich/compare/v3.4.1...v4.0.0
+[3.4.1]: https://github.com/willmcgugan/rich/compare/v3.4.0...v3.4.1
+[3.4.0]: https://github.com/willmcgugan/rich/compare/v3.3.2...v3.4.0
+[3.3.2]: https://github.com/willmcgugan/rich/compare/v3.3.1...v3.3.2
+[3.3.1]: https://github.com/willmcgugan/rich/compare/v3.3.0...v3.3.1
+[3.3.0]: https://github.com/willmcgugan/rich/compare/v3.2.0...v3.3.0
+[3.2.0]: https://github.com/willmcgugan/rich/compare/v3.1.0...v3.2.0
+[3.1.0]: https://github.com/willmcgugan/rich/compare/v3.0.5...v3.1.0
+[3.0.5]: https://github.com/willmcgugan/rich/compare/v3.0.4...v3.0.5
+[3.0.4]: https://github.com/willmcgugan/rich/compare/v3.0.3...v3.0.4
+[3.0.3]: https://github.com/willmcgugan/rich/compare/v3.0.2...v3.0.3
+[3.0.2]: https://github.com/willmcgugan/rich/compare/v3.0.1...v3.0.2
+[3.0.1]: https://github.com/willmcgugan/rich/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/willmcgugan/rich/compare/v2.3.1...v3.0.0
+[2.3.1]: https://github.com/willmcgugan/rich/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/willmcgugan/rich/compare/v2.2.6...v2.3.0
+[2.2.6]: https://github.com/willmcgugan/rich/compare/v2.2.5...v2.2.6
+[2.2.5]: https://github.com/willmcgugan/rich/compare/v2.2.4...v2.2.5
+[2.2.4]: https://github.com/willmcgugan/rich/compare/v2.2.3...v2.2.4
+[2.2.3]: https://github.com/willmcgugan/rich/compare/v2.2.2...v2.2.3
+[2.2.2]: https://github.com/willmcgugan/rich/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/willmcgugan/rich/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/willmcgugan/rich/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/willmcgugan/rich/compare/v2.0.1...v2.1.0
+[2.0.1]: https://github.com/willmcgugan/rich/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/willmcgugan/rich/compare/v1.3.1...v2.0.0
+[1.3.1]: https://github.com/willmcgugan/rich/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/willmcgugan/rich/compare/v1.2.3...v1.3.0
+[1.2.3]: https://github.com/willmcgugan/rich/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/willmcgugan/rich/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/willmcgugan/rich/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/willmcgugan/rich/compare/v1.1.9...v1.2.0
+[1.1.9]: https://github.com/willmcgugan/rich/compare/v1.1.8...v1.1.9
+[1.1.8]: https://github.com/willmcgugan/rich/compare/v1.1.7...v1.1.8
+[1.1.7]: https://github.com/willmcgugan/rich/compare/v1.1.6...v1.1.7
+[1.1.6]: https://github.com/willmcgugan/rich/compare/v1.1.5...v1.1.6
+[1.1.5]: https://github.com/willmcgugan/rich/compare/v1.1.4...v1.1.5
+[1.1.4]: https://github.com/willmcgugan/rich/compare/v1.1.3...v1.1.4
+[1.1.3]: https://github.com/willmcgugan/rich/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/willmcgugan/rich/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/willmcgugan/rich/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/willmcgugan/rich/compare/v1.0.3...v1.1.0
+[1.0.3]: https://github.com/willmcgugan/rich/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/willmcgugan/rich/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/willmcgugan/rich/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/willmcgugan/rich/compare/v0.8.13...v1.0.0
+[0.8.13]: https://github.com/willmcgugan/rich/compare/v0.8.12...v0.8.13
+[0.8.12]: https://github.com/willmcgugan/rich/compare/v0.8.11...v0.8.12
+[0.8.11]: https://github.com/willmcgugan/rich/compare/v0.8.10...v0.8.11
+[0.8.10]: https://github.com/willmcgugan/rich/compare/v0.8.9...v0.8.10
+[0.8.9]: https://github.com/willmcgugan/rich/compare/v0.8.8...v0.8.9
+[0.8.8]: https://github.com/willmcgugan/rich/compare/v0.8.7...v0.8.8
+[0.8.7]: https://github.com/willmcgugan/rich/compare/v0.8.6...v0.8.7
+[0.8.6]: https://github.com/willmcgugan/rich/compare/v0.8.5...v0.8.6
+[0.8.5]: https://github.com/willmcgugan/rich/compare/v0.8.4...v0.8.5
+[0.8.4]: https://github.com/willmcgugan/rich/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/willmcgugan/rich/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/willmcgugan/rich/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/willmcgugan/rich/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/willmcgugan/rich/compare/v0.7.2...v0.8.0
+[0.7.2]: https://github.com/willmcgugan/rich/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/willmcgugan/rich/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/willmcgugan/rich/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/willmcgugan/rich/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/willmcgugan/rich/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/willmcgugan/rich/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/willmcgugan/rich/compare/v0.3.3...v0.4.0
+[0.3.3]: https://github.com/willmcgugan/rich/compare/v0.3.2...v0.3.3

@@ -2,6 +2,7 @@
 
 import io
 from time import sleep
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,9 @@ from rich.progress import (
     TotalFileSizeColumn,
     DownloadColumn,
     TransferSpeedColumn,
+    RenderableColumn,
+    SpinnerColumn,
+    MofNCompleteColumn,
     Progress,
     Task,
     TextColumn,
@@ -22,7 +26,6 @@ from rich.progress import (
     track,
     _TrackThread,
     TaskID,
-    _RefreshThread,
 )
 from rich.text import Text
 
@@ -67,6 +70,13 @@ def test_text_column():
     assert text == Text("[b]bar")
 
 
+def test_time_elapsed_column():
+    column = TimeElapsedColumn()
+    task = Task(1, "test", 100, 20, _get_time=lambda: 1.0)
+    text = column.render(task)
+    assert str(text) == "-:--:--"
+
+
 def test_time_remaining_column():
     class FakeTask(Task):
         time_remaining = 60
@@ -80,12 +90,68 @@ def test_time_remaining_column():
     assert str(text) == "0:01:00"
 
 
+@pytest.mark.parametrize(
+    "task_time, formatted",
+    [
+        (None, "--:--"),
+        (0, "00:00"),
+        (59, "00:59"),
+        (71, "01:11"),
+        (4210, "1:10:10"),
+    ],
+)
+def test_compact_time_remaining_column(task_time, formatted):
+    task = SimpleNamespace(finished=False, time_remaining=task_time)
+    column = TimeRemainingColumn(compact=True)
+
+    assert str(column.render(task)) == formatted
+
+
+def test_time_remaining_column_elapsed_when_finished():
+    task_time = 71
+    formatted = "0:01:11"
+
+    task = SimpleNamespace(finished=True, finished_time=task_time)
+    column = TimeRemainingColumn(elapsed_when_finished=True)
+
+    assert str(column.render(task)) == formatted
+
+
+def test_renderable_column():
+    column = RenderableColumn("foo")
+    task = Task(1, "test", 100, 20, _get_time=lambda: 1.0)
+    assert column.render(task) == "foo"
+
+
+def test_spinner_column():
+    time = 1.0
+
+    def get_time():
+        nonlocal time
+        return time
+
+    column = SpinnerColumn()
+    column.set_spinner("dots2")
+    task = Task(1, "test", 100, 20, _get_time=get_time)
+    result = column.render(task)
+    print(repr(result))
+    expected = "⣾"
+    assert str(result) == expected
+
+    time += 1.0
+    column.spinner.update(speed=0.5)
+    result = column.render(task)
+    print(repr(result))
+    expected = "⡿"
+    assert str(result) == expected
+
+
 def test_download_progress_uses_decimal_units() -> None:
 
     column = DownloadColumn()
     test_task = Task(1, "test", 1000, 500, _get_time=lambda: 1.0)
     rendered_progress = str(column.render(test_task))
-    expected = "0.5/1.0 KB"
+    expected = "0.5/1.0 kB"
     assert rendered_progress == expected
 
 
@@ -124,6 +190,7 @@ def make_progress() -> Progress:
         color_system="truecolor",
         width=80,
         legacy_windows=False,
+        _environ={},
     )
     progress = Progress(console=console, get_time=fake_time, auto_refresh=False)
     task1 = progress.add_task("foo")
@@ -159,6 +226,7 @@ def test_expand_bar() -> None:
         width=10,
         color_system="truecolor",
         legacy_windows=False,
+        _environ={},
     )
     progress = Progress(
         BarColumn(bar_width=None),
@@ -171,7 +239,8 @@ def test_expand_bar() -> None:
         pass
     expected = "\x1b[?25l\x1b[38;5;237m━━━━━━━━━━\x1b[0m\r\x1b[2K\x1b[38;5;237m━━━━━━━━━━\x1b[0m\n\x1b[?25h"
     render_result = console.file.getvalue()
-    print(repr(render_result))
+    print("RESULT\n", repr(render_result))
+    print("EXPECTED\n", repr(expected))
     assert render_result == expected
 
 
@@ -190,6 +259,7 @@ def test_track() -> None:
         width=60,
         color_system="truecolor",
         legacy_windows=False,
+        _environ={},
     )
     test = ["foo", "bar", "baz"]
     expected_values = iter(test)
@@ -222,6 +292,7 @@ def test_progress_track() -> None:
         width=60,
         color_system="truecolor",
         legacy_windows=False,
+        _environ={},
     )
     progress = Progress(
         console=console, auto_refresh=False, get_time=MockClock(auto=True)
@@ -257,6 +328,7 @@ def test_columns() -> None:
         color_system="truecolor",
         legacy_windows=False,
         log_path=False,
+        _environ={},
     )
     progress = Progress(
         "test",
@@ -268,6 +340,8 @@ def test_columns() -> None:
         TotalFileSizeColumn(),
         DownloadColumn(),
         TransferSpeedColumn(),
+        MofNCompleteColumn(),
+        MofNCompleteColumn(separator=" of "),
         transient=True,
         console=console,
         auto_refresh=False,
@@ -287,8 +361,35 @@ def test_columns() -> None:
 
     result = replace_link_ids(console.file.getvalue())
     print(repr(result))
-    expected = "\x1b[?25ltest foo \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:37\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:36\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m\r\x1b[2K\x1b[1A\x1b[2Kfoo\ntest foo \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:37\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:36\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m\r\x1b[2K\x1b[1A\x1b[2K\x1b[2;36m[TIME]\x1b[0m\x1b[2;36m \x1b[0mhello                                                                    \ntest foo \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:37\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:36\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m\r\x1b[2K\x1b[1A\x1b[2Kworld\ntest foo \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:37\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:36\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m\r\x1b[2K\x1b[1A\x1b[2Ktest foo \x1b[38;2;114;156;31m━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:01:00\x1b[0m \x1b[32m12 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m12/10 bytes\x1b[0m \x1b[31m1 byte/s\x1b[0m\ntest bar \x1b[38;2;114;156;31m━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:45\x1b[0m \x1b[32m16 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m16/7 bytes \x1b[0m \x1b[31m1 byte/s\x1b[0m\r\x1b[2K\x1b[1A\x1b[2Ktest foo \x1b[38;2;114;156;31m━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:01:00\x1b[0m \x1b[32m12 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m12/10 bytes\x1b[0m \x1b[31m1 byte/s\x1b[0m\ntest bar \x1b[38;2;114;156;31m━━━━━━━━━━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:45\x1b[0m \x1b[32m16 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m16/7 bytes \x1b[0m \x1b[31m1 byte/s\x1b[0m\n\x1b[?25h\r\x1b[1A\x1b[2K\x1b[1A\x1b[2K"
+    expected = "\x1b[?25ltest foo \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:07\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m \x1b[32m 0/10\x1b[0m \x1b[32m 0 of 10\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:18\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m \x1b[32m0/7  \x1b[0m \x1b[32m0 of 7  \x1b[0m\r\x1b[2K\x1b[1A\x1b[2Kfoo\ntest foo \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:07\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m \x1b[32m 0/10\x1b[0m \x1b[32m 0 of 10\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:18\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m \x1b[32m0/7  \x1b[0m \x1b[32m0 of 7  \x1b[0m\r\x1b[2K\x1b[1A\x1b[2K\x1b[2;36m[TIME]\x1b[0m\x1b[2;36m \x1b[0mhello                                                                    \ntest foo \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:07\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m \x1b[32m 0/10\x1b[0m \x1b[32m 0 of 10\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:18\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m \x1b[32m0/7  \x1b[0m \x1b[32m0 of 7  \x1b[0m\r\x1b[2K\x1b[1A\x1b[2Kworld\ntest foo \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:07\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m10 bytes\x1b[0m \x1b[32m0/10 bytes\x1b[0m \x1b[31m?\x1b[0m \x1b[32m 0/10\x1b[0m \x1b[32m 0 of 10\x1b[0m\ntest bar \x1b[38;5;237m━━━━━━━━━━\x1b[0m \x1b[36m-:--:--\x1b[0m \x1b[33m0:00:18\x1b[0m \x1b[32m0 bytes\x1b[0m \x1b[32m7 bytes \x1b[0m \x1b[32m0/7 bytes \x1b[0m \x1b[31m?\x1b[0m \x1b[32m0/7  \x1b[0m \x1b[32m0 of 7  \x1b[0m\r\x1b[2K\x1b[1A\x1b[2Ktest foo \x1b[38;2;114;156;31m━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:34\x1b[0m \x1b[32m12     \x1b[0m \x1b[32m10     \x1b[0m \x1b[32m12/10   \x1b[0m \x1b[31m1      \x1b[0m \x1b[32m12/10\x1b[0m \x1b[32m12 of 10\x1b[0m\n                                 \x1b[32mbytes  \x1b[0m \x1b[32mbytes  \x1b[0m \x1b[32mbytes   \x1b[0m \x1b[31mbyte/s \x1b[0m               \ntest bar \x1b[38;2;114;156;31m━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:29\x1b[0m \x1b[32m16     \x1b[0m \x1b[32m7 bytes\x1b[0m \x1b[32m16/7    \x1b[0m \x1b[31m2      \x1b[0m \x1b[32m16/7 \x1b[0m \x1b[32m16 of 7 \x1b[0m\n                                 \x1b[32mbytes  \x1b[0m         \x1b[32mbytes   \x1b[0m \x1b[31mbytes/s\x1b[0m               \r\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2Ktest foo \x1b[38;2;114;156;31m━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:34\x1b[0m \x1b[32m12     \x1b[0m \x1b[32m10     \x1b[0m \x1b[32m12/10   \x1b[0m \x1b[31m1      \x1b[0m \x1b[32m12/10\x1b[0m \x1b[32m12 of 10\x1b[0m\n                                 \x1b[32mbytes  \x1b[0m \x1b[32mbytes  \x1b[0m \x1b[32mbytes   \x1b[0m \x1b[31mbyte/s \x1b[0m               \ntest bar \x1b[38;2;114;156;31m━━━━━━━\x1b[0m \x1b[36m0:00:00\x1b[0m \x1b[33m0:00:29\x1b[0m \x1b[32m16     \x1b[0m \x1b[32m7 bytes\x1b[0m \x1b[32m16/7    \x1b[0m \x1b[31m2      \x1b[0m \x1b[32m16/7 \x1b[0m \x1b[32m16 of 7 \x1b[0m\n                                 \x1b[32mbytes  \x1b[0m         \x1b[32mbytes   \x1b[0m \x1b[31mbytes/s\x1b[0m               \n\x1b[?25h\r\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K"
+
     assert result == expected
+
+
+def test_using_default_columns() -> None:
+    # can only check types, as the instances do not '==' each other
+    expected_default_types = [
+        TextColumn,
+        BarColumn,
+        TextColumn,
+        TimeRemainingColumn,
+    ]
+
+    progress = Progress()
+    assert [type(c) for c in progress.columns] == expected_default_types
+
+    progress = Progress(
+        SpinnerColumn(),
+        *Progress.get_default_columns(),
+        "Elapsed:",
+        TimeElapsedColumn(),
+    )
+    assert [type(c) for c in progress.columns] == [
+        SpinnerColumn,
+        *expected_default_types,
+        str,
+        TimeElapsedColumn,
+    ]
 
 
 def test_task_create() -> None:
@@ -331,23 +432,6 @@ def test_progress_create() -> None:
     assert progress.task_ids == []
 
 
-def test_refresh_thread() -> None:
-    class MockProgress:
-        def __init__(self):
-            self.count = 0
-
-        def refresh(self):
-            self.count += 1
-
-    progress = MockProgress()
-    thread = _RefreshThread(progress, 100)
-    assert thread.progress == progress
-    thread.start()
-    sleep(0.2)
-    thread.stop()
-    assert progress.count >= 1
-
-
 def test_track_thread() -> None:
     progress = Progress()
     task_id = progress.add_task("foo")
@@ -388,7 +472,7 @@ def test_reset() -> None:
 
 
 def test_progress_max_refresh() -> None:
-    """Test max_refresh argment."""
+    """Test max_refresh argument."""
     time = 0.0
 
     def get_time() -> float:
@@ -399,7 +483,11 @@ def test_progress_max_refresh() -> None:
             time = time + 1.0
 
     console = Console(
-        color_system=None, width=80, legacy_windows=False, force_terminal=True
+        color_system=None,
+        width=80,
+        legacy_windows=False,
+        force_terminal=True,
+        _environ={},
     )
     column = TextColumn("{task.description}")
     column.max_refresh = 3
@@ -421,6 +509,44 @@ def test_progress_max_refresh() -> None:
         result
         == "\x1b[?25l\r\x1b[2Kstart\r\x1b[2Kstart\r\x1b[2Ktick 1\r\x1b[2Ktick 1\r\x1b[2Ktick 3\r\x1b[2Ktick 3\r\x1b[2Ktick 5\r\x1b[2Ktick 5\n\x1b[?25h"
     )
+
+
+def test_live_is_started_if_progress_is_enabled() -> None:
+    progress = Progress(auto_refresh=False, disable=False)
+
+    with progress:
+        assert progress.live._started
+
+
+def test_live_is_not_started_if_progress_is_disabled() -> None:
+    progress = Progress(auto_refresh=False, disable=True)
+
+    with progress:
+        assert not progress.live._started
+
+
+def test_no_output_if_progress_is_disabled() -> None:
+    console = Console(
+        file=io.StringIO(),
+        force_terminal=True,
+        width=60,
+        color_system="truecolor",
+        legacy_windows=False,
+        _environ={},
+    )
+    progress = Progress(
+        console=console,
+        disable=True,
+    )
+    test = ["foo", "bar", "baz"]
+    expected_values = iter(test)
+    with progress:
+        for value in progress.track(test, description="test"):
+            assert value == next(expected_values)
+    result = console.file.getvalue()
+    print(repr(result))
+    expected = ""
+    assert result == expected
 
 
 if __name__ == "__main__":

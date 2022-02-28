@@ -2,8 +2,9 @@ import os.path
 import platform
 import textwrap
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Type, Union
 
+from pygments.lexer import Lexer
 from pygments.lexers import get_lexer_by_name, guess_lexer_for_filename
 from pygments.style import Style as PygmentsStyle
 from pygments.styles import get_style_by_name
@@ -21,11 +22,14 @@ from pygments.token import (
 )
 from pygments.util import ClassNotFound
 
+from rich.containers import Lines
+
 from ._loop import loop_first
-from .color import Color, blend_rgb, parse_rgb_hex
-from .console import Console, ConsoleOptions, JustifyMethod, RenderResult, Segment
+from .color import Color, blend_rgb
+from .console import Console, ConsoleOptions, JustifyMethod, RenderResult
 from .jupyter import JupyterMixin
 from .measure import Measurement
+from .segment import Segment
 from .style import Style
 from .text import Text
 
@@ -113,7 +117,7 @@ class SyntaxTheme(ABC):
 
 
 class PygmentsSyntaxTheme(SyntaxTheme):
-    """Syntax theme that delagates to Pygments theme."""
+    """Syntax theme that delegates to Pygments theme."""
 
     def __init__(self, theme: Union[str, Type[PygmentsStyle]]) -> None:
         self._style_cache: Dict[TokenType, Style] = {}
@@ -192,12 +196,13 @@ class Syntax(JupyterMixin):
 
     Args:
         code (str): Code to highlight.
-        lexer_name (str): Lexer to use (see https://pygments.org/docs/lexers/)
+        lexer (Lexer | str): Lexer to use (see https://pygments.org/docs/lexers/)
         theme (str, optional): Color theme, aka Pygments style (see https://pygments.org/docs/styles/#getting-a-list-of-available-styles). Defaults to "monokai".
         dedent (bool, optional): Enable stripping of initial whitespace. Defaults to False.
         line_numbers (bool, optional): Enable rendering of line numbers. Defaults to False.
         start_line (int, optional): Starting number for line numbers. Defaults to 1.
-        line_range (Tuple[int, int], optional): If given should be a tuple of the start and end line to render.
+        line_range (Tuple[int | None, int | None], optional): If given should be a tuple of the start and end line to render.
+            A value of None in the tuple indicates the range is open in that direction.
         highlight_lines (Set[int]): A set of line numbers to highlight.
         code_width: Width of code to render (not including line numbers), or ``None`` to use all available width.
         tab_size (int, optional): Size of tabs. Defaults to 4.
@@ -224,22 +229,22 @@ class Syntax(JupyterMixin):
     def __init__(
         self,
         code: str,
-        lexer_name: str,
+        lexer: Union[Lexer, str],
         *,
         theme: Union[str, SyntaxTheme] = DEFAULT_THEME,
         dedent: bool = False,
         line_numbers: bool = False,
         start_line: int = 1,
-        line_range: Tuple[int, int] = None,
-        highlight_lines: Set[int] = None,
+        line_range: Optional[Tuple[Optional[int], Optional[int]]] = None,
+        highlight_lines: Optional[Set[int]] = None,
         code_width: Optional[int] = None,
         tab_size: int = 4,
         word_wrap: bool = False,
-        background_color: str = None,
+        background_color: Optional[str] = None,
         indent_guides: bool = False,
     ) -> None:
         self.code = code
-        self.lexer_name = lexer_name
+        self._lexer = lexer
         self.dedent = dedent
         self.line_numbers = line_numbers
         self.start_line = start_line
@@ -249,6 +254,9 @@ class Syntax(JupyterMixin):
         self.tab_size = tab_size
         self.word_wrap = word_wrap
         self.background_color = background_color
+        self.background_style = (
+            Style(bgcolor=background_color) if background_color else Style()
+        )
         self.indent_guides = indent_guides
 
         self._theme = self.get_theme(theme)
@@ -258,16 +266,17 @@ class Syntax(JupyterMixin):
         cls,
         path: str,
         encoding: str = "utf-8",
+        lexer: Optional[Union[Lexer, str]] = None,
         theme: Union[str, SyntaxTheme] = DEFAULT_THEME,
         dedent: bool = False,
         line_numbers: bool = False,
-        line_range: Tuple[int, int] = None,
+        line_range: Optional[Tuple[int, int]] = None,
         start_line: int = 1,
-        highlight_lines: Set[int] = None,
+        highlight_lines: Optional[Set[int]] = None,
         code_width: Optional[int] = None,
         tab_size: int = 4,
         word_wrap: bool = False,
-        background_color: str = None,
+        background_color: Optional[str] = None,
         indent_guides: bool = False,
     ) -> "Syntax":
         """Construct a Syntax object from a file.
@@ -275,6 +284,7 @@ class Syntax(JupyterMixin):
         Args:
             path (str): Path to file to highlight.
             encoding (str): Encoding of file.
+            lexer (str | Lexer, optional): Lexer to use. If None, lexer will be auto-detected from path/file content.
             theme (str, optional): Color theme, aka Pygments style (see https://pygments.org/docs/styles/#getting-a-list-of-available-styles). Defaults to "emacs".
             dedent (bool, optional): Enable stripping of initial whitespace. Defaults to True.
             line_numbers (bool, optional): Enable rendering of line numbers. Defaults to False.
@@ -293,26 +303,12 @@ class Syntax(JupyterMixin):
         with open(path, "rt", encoding=encoding) as code_file:
             code = code_file.read()
 
-        lexer = None
-        lexer_name = "default"
-        try:
-            _, ext = os.path.splitext(path)
-            if ext:
-                extension = ext.lstrip(".").lower()
-                lexer = get_lexer_by_name(extension)
-                lexer_name = lexer.name
-        except ClassNotFound:
-            pass
-
-        if lexer is None:
-            try:
-                lexer_name = guess_lexer_for_filename(path, code).name
-            except ClassNotFound:
-                pass
+        if not lexer:
+            lexer = cls.guess_lexer(path, code=code)
 
         return cls(
             code,
-            lexer_name,
+            lexer,
             theme=theme,
             dedent=dedent,
             line_numbers=line_numbers,
@@ -326,13 +322,51 @@ class Syntax(JupyterMixin):
             indent_guides=indent_guides,
         )
 
+    @classmethod
+    def guess_lexer(cls, path: str, code: Optional[str] = None) -> str:
+        """Guess the alias of the Pygments lexer to use based on a path and an optional string of code.
+        If code is supplied, it will use a combination of the code and the filename to determine the
+        best lexer to use. For example, if the file is ``index.html`` and the file contains Django
+        templating syntax, then "html+django" will be returned. If the file is ``index.html``, and no
+        templating language is used, the "html" lexer will be used. If no string of code
+        is supplied, the lexer will be chosen based on the file extension..
+
+        Args:
+             path (AnyStr): The path to the file containing the code you wish to know the lexer for.
+             code (str, optional): Optional string of code that will be used as a fallback if no lexer
+                is found for the supplied path.
+
+        Returns:
+            str: The name of the Pygments lexer that best matches the supplied path/code.
+        """
+        lexer: Optional[Lexer] = None
+        lexer_name = "default"
+        if code:
+            try:
+                lexer = guess_lexer_for_filename(path, code)
+            except ClassNotFound:
+                pass
+
+        if not lexer:
+            try:
+                _, ext = os.path.splitext(path)
+                if ext:
+                    extension = ext.lstrip(".").lower()
+                    lexer = get_lexer_by_name(extension)
+            except ClassNotFound:
+                pass
+
+        if lexer:
+            if lexer.aliases:
+                lexer_name = lexer.aliases[0]
+            else:
+                lexer_name = lexer.name
+
+        return lexer_name
+
     def _get_base_style(self) -> Style:
         """Get the base style."""
-        default_style = (
-            Style(bgcolor=self.background_color)
-            if self.background_color is not None
-            else self._theme.get_background_style()
-        )
+        default_style = self._theme.get_background_style() + self.background_style
         return default_style
 
     def _get_token_color(self, token_type: TokenType) -> Optional[Color]:
@@ -347,14 +381,38 @@ class Syntax(JupyterMixin):
         style = self._theme.get_style_for_token(token_type)
         return style.color
 
-    def highlight(self, code: str) -> Text:
+    @property
+    def lexer(self) -> Optional[Lexer]:
+        """The lexer for this syntax, or None if no lexer was found.
+
+        Tries to find the lexer by name if a string was passed to the constructor.
+        """
+
+        if isinstance(self._lexer, Lexer):
+            return self._lexer
+        try:
+            return get_lexer_by_name(
+                self._lexer,
+                stripnl=False,
+                ensurenl=True,
+                tabsize=self.tab_size,
+            )
+        except ClassNotFound:
+            return None
+
+    def highlight(
+        self,
+        code: str,
+        line_range: Optional[Tuple[Optional[int], Optional[int]]] = None,
+    ) -> Text:
         """Highlight code and return a Text instance.
 
         Args:
-            code (str). Code to highlight.
+            code (str): Code to highlight.
+            line_range(Tuple[int, int], optional): Optional line range to highlight.
 
         Returns:
-            Text: A text instance containing syntax highlight.
+            Text: A text instance containing highlighted syntax.
         """
 
         base_style = self._get_base_style()
@@ -368,24 +426,63 @@ class Syntax(JupyterMixin):
             tab_size=self.tab_size,
             no_wrap=not self.word_wrap,
         )
-        try:
-            lexer = get_lexer_by_name(self.lexer_name)
-        except ClassNotFound:
+        _get_theme_style = self._theme.get_style_for_token
+
+        lexer = self.lexer
+
+        if lexer is None:
             text.append(code)
         else:
-            _get_theme_style = self._theme.get_style_for_token
-            text.append_tokens(
-                (token, _get_theme_style(token_type))
-                for token_type, token in lexer.get_tokens(code)
-            )
+            if line_range:
+                # More complicated path to only stylize a portion of the code
+                # This speeds up further operations as there are less spans to process
+                line_start, line_end = line_range
+
+                def line_tokenize() -> Iterable[Tuple[Any, str]]:
+                    """Split tokens to one per line."""
+                    assert lexer
+
+                    for token_type, token in lexer.get_tokens(code):
+                        while token:
+                            line_token, new_line, token = token.partition("\n")
+                            yield token_type, line_token + new_line
+
+                def tokens_to_spans() -> Iterable[Tuple[str, Optional[Style]]]:
+                    """Convert tokens to spans."""
+                    tokens = iter(line_tokenize())
+                    line_no = 0
+                    _line_start = line_start - 1 if line_start else 0
+
+                    # Skip over tokens until line start
+                    while line_no < _line_start:
+                        _token_type, token = next(tokens)
+                        yield (token, None)
+                        if token.endswith("\n"):
+                            line_no += 1
+                    # Generate spans until line end
+                    for token_type, token in tokens:
+                        yield (token, _get_theme_style(token_type))
+                        if token.endswith("\n"):
+                            line_no += 1
+                            if line_end and line_no >= line_end:
+                                break
+
+                text.append_tokens(tokens_to_spans())
+
+            else:
+                text.append_tokens(
+                    (token, _get_theme_style(token_type))
+                    for token_type, token in lexer.get_tokens(code)
+                )
             if self.background_color is not None:
                 text.stylize(f"on {self.background_color}")
         return text
 
     def _get_line_numbers_color(self, blend: float = 0.3) -> Color:
-        background_color = self._theme.get_background_style().bgcolor
+        background_style = self._theme.get_background_style() + self.background_style
+        background_color = background_style.bgcolor
         if background_color is None or background_color.is_system_defined:
-            return background_color or Color.default()
+            return Color.default()
         foreground_color = self._get_token_color(Token.Text)
         if foreground_color is None or foreground_color.is_system_defined:
             return foreground_color or Color.default()
@@ -414,37 +511,47 @@ class Syntax(JupyterMixin):
                 background_style,
                 self._theme.get_style_for_token(Token.Text),
                 Style(color=self._get_line_numbers_color()),
+                self.background_style,
             )
             highlight_number_style = Style.chain(
                 background_style,
                 self._theme.get_style_for_token(Token.Text),
                 Style(bold=True, color=self._get_line_numbers_color(0.9)),
+                self.background_style,
             )
         else:
             number_style = background_style + Style(dim=True)
             highlight_number_style = background_style + Style(dim=False)
         return background_style, number_style, highlight_number_style
 
-    def __rich_measure__(self, console: "Console", max_width: int) -> "Measurement":
+    def __rich_measure__(
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "Measurement":
         if self.code_width is not None:
             width = self.code_width + self._numbers_column_width
             return Measurement(self._numbers_column_width, width)
-        return Measurement(self._numbers_column_width, max_width)
+        return Measurement(self._numbers_column_width, options.max_width)
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
+
         transparent_background = self._get_base_style().transparent_background
         code_width = (
-            (options.max_width - self._numbers_column_width - 1)
+            (
+                (options.max_width - self._numbers_column_width - 1)
+                if self.line_numbers
+                else options.max_width
+            )
             if self.code_width is None
             else self.code_width
         )
-        code = textwrap.dedent(self.code) if self.dedent else self.code
+
+        ends_on_nl = self.code.endswith("\n")
+        code = self.code if ends_on_nl else self.code + "\n"
+        code = textwrap.dedent(code) if self.dedent else code
         code = code.expandtabs(self.tab_size)
-        text = self.highlight(code)
-        text.remove_suffix("\n")
-        text.expand_tabs(self.tab_size)
+        text = self.highlight(code, self.line_range)
 
         (
             background_style,
@@ -452,25 +559,56 @@ class Syntax(JupyterMixin):
             highlight_number_style,
         ) = self._get_number_styles(console)
 
+        if not self.line_numbers and not self.word_wrap and not self.line_range:
+            if not ends_on_nl:
+                text.remove_suffix("\n")
+            # Simple case of just rendering text
+            style = (
+                self._get_base_style()
+                + self._theme.get_style_for_token(Comment)
+                + Style(dim=True)
+                + self.background_style
+            )
+            if self.indent_guides and not options.ascii_only:
+                text = text.with_indent_guides(self.tab_size, style=style)
+                text.overflow = "crop"
+            if style.transparent_background:
+                yield from console.render(
+                    text, options=options.update(width=code_width)
+                )
+            else:
+                syntax_lines = console.render_lines(
+                    text,
+                    options.update(width=code_width, height=None, justify="left"),
+                    style=self.background_style,
+                    pad=True,
+                    new_lines=True,
+                )
+                for syntax_line in syntax_lines:
+                    yield from syntax_line
+            return
+
+        start_line, end_line = self.line_range or (None, None)
+        line_offset = 0
+        if start_line:
+            line_offset = max(0, start_line - 1)
+        lines: Union[List[Text], Lines] = text.split("\n", allow_blank=ends_on_nl)
+        if self.line_range:
+            lines = lines[line_offset:end_line]
+
         if self.indent_guides and not options.ascii_only:
             style = (
                 self._get_base_style()
                 + self._theme.get_style_for_token(Comment)
                 + Style(dim=True)
+                + self.background_style
             )
-            text = text.with_indent_guides(self.tab_size, style=style)
-
-        if not self.line_numbers:
-            # Simple case of just rendering text
-            yield from console.render(text, options=options.update(width=code_width))
-            return
-
-        lines = text.split("\n")
-        line_offset = 0
-        if self.line_range:
-            start_line, end_line = self.line_range
-            line_offset = max(0, start_line - 1)
-            lines = lines[line_offset:end_line]
+            lines = (
+                Text("\n")
+                .join(lines)
+                .with_indent_guides(self.tab_size, style=style)
+                .split("\n", allow_blank=True)
+            )
 
         numbers_column_width = self._numbers_column_width
         render_options = options.update(width=code_width)
@@ -480,16 +618,17 @@ class Syntax(JupyterMixin):
         padding = _Segment(" " * numbers_column_width + " ", background_style)
         new_line = _Segment("\n")
 
-        line_pointer = "❱ "
+        line_pointer = "> " if options.legacy_windows else "❱ "
 
         for line_no, line in enumerate(lines, self.start_line + line_offset):
             if self.word_wrap:
                 wrapped_lines = console.render_lines(
                     line,
-                    render_options,
+                    render_options.update(height=None, justify="left"),
                     style=background_style,
                     pad=not transparent_background,
                 )
+
             else:
                 segments = list(line.render(console, end=""))
                 if options.no_wrap:
@@ -503,29 +642,39 @@ class Syntax(JupyterMixin):
                             pad=not transparent_background,
                         )
                     ]
-            for first, wrapped_line in loop_first(wrapped_lines):
-                if first:
-                    line_column = str(line_no).rjust(numbers_column_width - 2) + " "
-                    if highlight_line(line_no):
-                        yield _Segment(line_pointer, Style(color="red"))
-                        yield _Segment(line_column, highlight_number_style)
+            if self.line_numbers:
+                for first, wrapped_line in loop_first(wrapped_lines):
+                    if first:
+                        line_column = str(line_no).rjust(numbers_column_width - 2) + " "
+                        if highlight_line(line_no):
+                            yield _Segment(line_pointer, Style(color="red"))
+                            yield _Segment(line_column, highlight_number_style)
+                        else:
+                            yield _Segment("  ", highlight_number_style)
+                            yield _Segment(line_column, number_style)
                     else:
-                        yield _Segment("  ", highlight_number_style)
-                        yield _Segment(line_column, number_style)
-                else:
-                    yield padding
-                yield from wrapped_line
-                yield new_line
+                        yield padding
+                    yield from wrapped_line
+                    yield new_line
+            else:
+                for wrapped_line in wrapped_lines:
+                    yield from wrapped_line
+                    yield new_line
 
 
 if __name__ == "__main__":  # pragma: no cover
 
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(
         description="Render syntax to the console with Rich"
     )
-    parser.add_argument("path", metavar="PATH", help="path to file")
+    parser.add_argument(
+        "path",
+        metavar="PATH",
+        help="path to file, or - for stdin",
+    )
     parser.add_argument(
         "-c",
         "--force-color",
@@ -581,7 +730,14 @@ if __name__ == "__main__":  # pragma: no cover
         "--background-color",
         dest="background_color",
         default=None,
-        help="Overide background color",
+        help="Override background color",
+    )
+    parser.add_argument(
+        "-x",
+        "--lexer",
+        default=None,
+        dest="lexer_name",
+        help="Lexer name",
     )
     args = parser.parse_args()
 
@@ -589,12 +745,25 @@ if __name__ == "__main__":  # pragma: no cover
 
     console = Console(force_terminal=args.force_color, width=args.width)
 
-    syntax = Syntax.from_path(
-        args.path,
-        line_numbers=args.line_numbers,
-        word_wrap=args.word_wrap,
-        theme=args.theme,
-        background_color=args.background_color,
-        indent_guides=args.indent_guides,
-    )
+    if args.path == "-":
+        code = sys.stdin.read()
+        syntax = Syntax(
+            code=code,
+            lexer=args.lexer_name,
+            line_numbers=args.line_numbers,
+            word_wrap=args.word_wrap,
+            theme=args.theme,
+            background_color=args.background_color,
+            indent_guides=args.indent_guides,
+        )
+    else:
+        syntax = Syntax.from_path(
+            args.path,
+            lexer=args.lexer_name,
+            line_numbers=args.line_numbers,
+            word_wrap=args.word_wrap,
+            theme=args.theme,
+            background_color=args.background_color,
+            indent_guides=args.indent_guides,
+        )
     console.print(syntax, soft_wrap=args.soft_wrap)

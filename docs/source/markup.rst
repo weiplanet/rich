@@ -5,6 +5,9 @@ Console Markup
 
 Rich supports a simple markup which you can use to insert color and styles virtually everywhere Rich would accept a string (e.g. :meth:`~rich.console.Console.print` and :meth:`~rich.console.Console.log`).
 
+Run the following command to see some examples::
+
+    python -m rich.markup
 
 Syntax
 ------
@@ -24,6 +27,18 @@ There is a shorthand for closing a style. If you omit the style name from the cl
 
     print("[bold red]Bold and red[/] not bold or red")
 
+These markup tags may be use in combination with each other and don't need to be strictly nested. The following example demonstrates overlapping of markup tags:: 
+
+    print("[bold]Bold[italic] bold and italic [/bold]italic[/italic]")
+
+Errors
+~~~~~~
+
+Rich will raise :class:`~rich.errors.MarkupError` if the markup contains one of the following errors:
+
+- Mismatched tags, e.g. ``"[bold]Hello[/red]"``
+- No matching tag for implicit close, e.g. ``"no tags[/]"``
+
 
 Links
 ~~~~~
@@ -38,13 +53,49 @@ If your terminal software supports hyperlinks, you will be able to click the wor
 Escaping
 ~~~~~~~~
 
-Occasionally you may want to print something that Rich would interpret as markup. You can *escape* a tag by preceding it with backslash. Here's an example::
+Occasionally you may want to print something that Rich would interpret as markup. You can *escape* a tag by preceding it with a backslash. Here's an example::
 
     >>> from rich import print
-    >>> print("foo\[bar]")
+    >>> print(r"foo\[bar]")
     foo[bar]
 
+Without the backslash, Rich will assume that ``[bar]`` is a tag and remove it from the output if there is no "bar" style.
+
+.. note::
+    If you want to prevent the backslash from escaping the tag and output a literal backslash before a tag you can enter two backslashes.
+
 The function :func:`~rich.markup.escape` will handle escaping of text for you.
+
+Escaping is important if you construct console markup dynamically, with ``str.format`` or f strings (for example). Without escaping it may be possible to inject tags where you don't want them. Consider the following function::
+
+    def greet(name):
+        console.print(f"Hello {name}!")
+
+Calling ``greet("Will")`` will print a greeting, but if you were to call ``greet("[blink]Gotcha![/blink]"])`` then you will also get blinking text, which may not be desirable. The solution is to escape the arguments::
+
+    from rich.markup import escape
+    def greet(name):
+        console.print(f"Hello {escape(name)}!")
+
+Emoji
+~~~~~
+
+If you add an *emoji code* to markup it will be replaced with the equivalent unicode character. An emoji code consists of the name of the emoji surrounded be colons (:). Here's an example::
+
+    >>> from rich import print
+    >>> print(":warning:")
+    ⚠️
+
+Some emojis have two variants, the "emoji" variant displays in full color, and the "text" variant displays in monochrome (whatever your default colors are set to). You can specify the variant you want by adding either `"-emoji"` or `"-text"` to the emoji code. Here's an example:
+
+    >>> from rich import print
+    >>> print(":red_heart-emoji:")
+    >>> print(":red_heart-text:")
+
+To see a list of all the emojis available, run the following command::
+
+    python -m rich.emoji
+
 
 Rendering Markup
 ----------------

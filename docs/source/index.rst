@@ -16,19 +16,22 @@ Welcome to Rich's documentation!
    markup.rst
    text.rst
    highlighting.rst
+   pretty.rst
    logging.rst
    traceback.rst
    prompt.rst
 
-   tables.rst
+   columns.rst
+   group.rst   
+   markdown.rst
    padding.rst
    panel.rst
-   group.rst
-   columns.rst
-   live.rst
    progress.rst
-   markdown.rst
    syntax.rst
+   tables.rst
+   tree.rst
+   live.rst
+   layout.rst
 
    protocol.rst
 

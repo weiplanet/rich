@@ -17,11 +17,11 @@ For example, the following displays 2 blank lines above and below the text, and 
     test = Padding("Hello", (2, 4))
     print(test)
 
-The Padding class can also accept a ``style`` argument which applies a style to the padding and contents, and an ``expand`` switch which can be set to False to prevent the padding from extending to the full with of the terminal. Here's an example which demonstrates both these arguments::
+The Padding class can also accept a ``style`` argument which applies a style to the padding and contents, and an ``expand`` switch which can be set to False to prevent the padding from extending to the full width of the terminal. Here's an example which demonstrates both these arguments::
 
     from rich import print
     from rich.padding import Padding
     test = Padding("Hello", (2, 4), style="on blue", expand=False)
     print(test)
 
-Note that, as with all Rich renderables, you can use Padding any context. For instance, if you want to emphasize an item in a :class:`~rich.table.Table` you could add a Padding object to a row with a padding of 1 and a style of "on red".
+Note that, as with all Rich renderables, you can use Padding in any context. For instance, if you want to emphasize an item in a :class:`~rich.table.Table` you could add a Padding object to a row with a padding of 1 and a style of "on red".

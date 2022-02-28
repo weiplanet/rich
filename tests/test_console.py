@@ -9,16 +9,27 @@ import pytest
 
 from rich import errors
 from rich.color import ColorSystem
-from rich.console import CaptureError, Console, ConsoleOptions, render_group
+from rich.console import (
+    CaptureError,
+    Console,
+    ConsoleDimensions,
+    ConsoleOptions,
+    group,
+    ScreenUpdate,
+)
+from rich.control import Control
 from rich.measure import measure_renderables
 from rich.pager import SystemPager
 from rich.panel import Panel
+from rich.region import Region
+from rich.segment import Segment
 from rich.status import Status
 from rich.style import Style
+from rich.text import Text
 
 
 def test_dumb_terminal():
-    console = Console(force_terminal=True)
+    console = Console(force_terminal=True, _environ={})
     assert console.color_system is not None
 
     console = Console(force_terminal=True, _environ={"TERM": "dumb"})
@@ -54,6 +65,8 @@ def test_truecolor_terminal():
 
 def test_console_options_update():
     options = ConsoleOptions(
+        ConsoleDimensions(80, 25),
+        max_height=25,
         legacy_windows=False,
         min_width=10,
         max_width=20,
@@ -74,6 +87,23 @@ def test_console_options_update():
     assert options_copy == options and options_copy is not options
 
 
+def test_console_options_update_height():
+    options = ConsoleOptions(
+        ConsoleDimensions(80, 25),
+        max_height=25,
+        legacy_windows=False,
+        min_width=10,
+        max_width=20,
+        is_terminal=False,
+        encoding="utf-8",
+    )
+    assert options.height is None
+    render_options = options.update_height(12)
+    assert options.height is None
+    assert render_options.height == 12
+    assert render_options.max_height == 12
+
+
 def test_init():
     console = Console(color_system=None)
     assert console._color_system == None
@@ -87,7 +117,7 @@ def test_size():
     w, h = console.size
     assert console.width == w
 
-    console = Console(width=99, height=101)
+    console = Console(width=99, height=101, legacy_windows=False)
     w, h = console.size
     assert w == 99 and h == 101
 
@@ -104,6 +134,57 @@ def test_print():
     assert console.file.getvalue() == "foo\n"
 
 
+def test_print_multiple():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print("foo", "bar")
+    assert console.file.getvalue() == "foo bar\n"
+
+
+def test_print_text():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print(Text("foo", style="bold"))
+    assert console.file.getvalue() == "\x1B[1mfoo\x1B[0m\n"
+
+
+def test_print_text_multiple():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print(Text("foo", style="bold"), Text("bar"), "baz")
+    assert console.file.getvalue() == "\x1B[1mfoo\x1B[0m bar baz\n"
+
+
+def test_print_json():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print_json('[false, true, null, "foo"]', indent=4)
+    result = console.file.getvalue()
+    print(repr(result))
+    expected = '\x1b[1m[\x1b[0m\n    \x1b[3;91mfalse\x1b[0m,\n    \x1b[3;92mtrue\x1b[0m,\n    \x1b[3;35mnull\x1b[0m,\n    \x1b[32m"foo"\x1b[0m\n\x1b[1m]\x1b[0m\n'
+    assert result == expected
+
+
+def test_print_json_error():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    with pytest.raises(TypeError):
+        console.print_json(["foo"], indent=4)
+
+
+def test_print_json_data():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print_json(data=[False, True, None, "foo"], indent=4)
+    result = console.file.getvalue()
+    print(repr(result))
+    expected = '\x1b[1m[\x1b[0m\n    \x1b[3;91mfalse\x1b[0m,\n    \x1b[3;92mtrue\x1b[0m,\n    \x1b[3;35mnull\x1b[0m,\n    \x1b[32m"foo"\x1b[0m\n\x1b[1m]\x1b[0m\n'
+    assert result == expected
+
+
+def test_print_json_ensure_ascii():
+    console = Console(file=io.StringIO(), color_system="truecolor")
+    console.print_json(data={"foo": "💩"}, ensure_ascii=False)
+    result = console.file.getvalue()
+    print(repr(result))
+    expected = '\x1b[1m{\x1b[0m\n  \x1b[1;34m"foo"\x1b[0m: \x1b[32m"💩"\x1b[0m\n\x1b[1m}\x1b[0m\n'
+    assert result == expected
+
+
 def test_log():
     console = Console(
         file=io.StringIO(),
@@ -111,12 +192,25 @@ def test_log():
         color_system="truecolor",
         log_time_format="TIME",
         log_path=False,
+        _environ={},
     )
     console.log("foo", style="red")
-    expected = "\x1b[2;36mTIME\x1b[0m\x1b[2;36m \x1b[0m\x1b[31mfoo\x1b[0m\x1b[31m                                                                        \x1b[0m\n"
+    expected = "\x1b[2;36mTIME\x1b[0m\x1b[2;36m \x1b[0m\x1b[31mfoo                                                                        \x1b[0m\n"
     result = console.file.getvalue()
     print(repr(result))
     assert result == expected
+
+
+def test_log_milliseconds():
+    def time_formatter(timestamp: datetime) -> Text:
+        return Text("TIME")
+
+    console = Console(
+        file=io.StringIO(), width=40, log_time_format=time_formatter, log_path=False
+    )
+    console.log("foo")
+    result = console.file.getvalue()
+    assert result == "TIME foo                                \n"
 
 
 def test_print_empty():
@@ -141,7 +235,9 @@ def test_print_style():
 
 
 def test_show_cursor():
-    console = Console(file=io.StringIO(), force_terminal=True, legacy_windows=False)
+    console = Console(
+        file=io.StringIO(), force_terminal=True, legacy_windows=False, _environ={}
+    )
     console.show_cursor(False)
     console.print("foo")
     console.show_cursor(True)
@@ -149,7 +245,7 @@ def test_show_cursor():
 
 
 def test_clear():
-    console = Console(file=io.StringIO(), force_terminal=True)
+    console = Console(file=io.StringIO(), force_terminal=True, _environ={})
     console.clear()
     console.clear(home=False)
     assert console.file.getvalue() == "\033[2J\033[H" + "\033[2J"
@@ -187,10 +283,10 @@ def test_render_error():
 
 
 def test_control():
-    console = Console(file=io.StringIO(), force_terminal=True)
-    console.control("FOO")
+    console = Console(file=io.StringIO(), force_terminal=True, _environ={})
+    console.control(Control.clear())
     console.print("BAR")
-    assert console.file.getvalue() == "FOOBAR\n"
+    assert console.file.getvalue() == "\x1b[2JBAR\n"
 
 
 def test_capture():
@@ -253,26 +349,30 @@ def test_justify_none():
 
 
 def test_justify_left():
-    console = Console(file=io.StringIO(), force_terminal=True, width=20)
+    console = Console(file=io.StringIO(), force_terminal=True, width=20, _environ={})
     console.print("FOO", justify="left")
     assert console.file.getvalue() == "FOO                 \n"
 
 
 def test_justify_center():
-    console = Console(file=io.StringIO(), force_terminal=True, width=20)
+    console = Console(file=io.StringIO(), force_terminal=True, width=20, _environ={})
     console.print("FOO", justify="center")
     assert console.file.getvalue() == "        FOO         \n"
 
 
 def test_justify_right():
-    console = Console(file=io.StringIO(), force_terminal=True, width=20)
+    console = Console(file=io.StringIO(), force_terminal=True, width=20, _environ={})
     console.print("FOO", justify="right")
     assert console.file.getvalue() == "                 FOO\n"
 
 
 def test_justify_renderable_none():
     console = Console(
-        file=io.StringIO(), force_terminal=True, width=20, legacy_windows=False
+        file=io.StringIO(),
+        force_terminal=True,
+        width=20,
+        legacy_windows=False,
+        _environ={},
     )
     console.print(Panel("FOO", expand=False, padding=0), justify=None)
     assert console.file.getvalue() == "╭───╮\n│FOO│\n╰───╯\n"
@@ -280,7 +380,11 @@ def test_justify_renderable_none():
 
 def test_justify_renderable_left():
     console = Console(
-        file=io.StringIO(), force_terminal=True, width=10, legacy_windows=False
+        file=io.StringIO(),
+        force_terminal=True,
+        width=10,
+        legacy_windows=False,
+        _environ={},
     )
     console.print(Panel("FOO", expand=False, padding=0), justify="left")
     assert console.file.getvalue() == "╭───╮     \n│FOO│     \n╰───╯     \n"
@@ -288,7 +392,11 @@ def test_justify_renderable_left():
 
 def test_justify_renderable_center():
     console = Console(
-        file=io.StringIO(), force_terminal=True, width=10, legacy_windows=False
+        file=io.StringIO(),
+        force_terminal=True,
+        width=10,
+        legacy_windows=False,
+        _environ={},
     )
     console.print(Panel("FOO", expand=False, padding=0), justify="center")
     assert console.file.getvalue() == "  ╭───╮   \n  │FOO│   \n  ╰───╯   \n"
@@ -296,7 +404,11 @@ def test_justify_renderable_center():
 
 def test_justify_renderable_right():
     console = Console(
-        file=io.StringIO(), force_terminal=True, width=20, legacy_windows=False
+        file=io.StringIO(),
+        force_terminal=True,
+        width=20,
+        legacy_windows=False,
+        _environ={},
     )
     console.print(Panel("FOO", expand=False, padding=0), justify="right")
     assert (
@@ -327,9 +439,9 @@ def test_export_text():
 
 def test_export_html():
     console = Console(record=True, width=100)
-    console.print("[b]foo [link=https://example.org]Click[/link]")
+    console.print("[b]foo <script> 'test' [link=https://example.org]Click[/link]")
     html = console.export_html()
-    expected = '<!DOCTYPE html>\n<head>\n<meta charset="UTF-8">\n<style>\n.r1 {font-weight: bold}\nbody {\n    color: #000000;\n    background-color: #ffffff;\n}\n</style>\n</head>\n<html>\n<body>\n    <code>\n        <pre style="font-family:Menlo,\'DejaVu Sans Mono\',consolas,\'Courier New\',monospace"><span class="r1">foo </span><a href="https://example.org"><span class="r1">Click</span></a>\n</pre>\n    </code>\n</body>\n</html>\n'
+    expected = '<!DOCTYPE html>\n<head>\n<meta charset="UTF-8">\n<style>\n.r1 {font-weight: bold}\n.r2 {color: #ff00ff; text-decoration-color: #ff00ff; font-weight: bold}\n.r3 {color: #008000; text-decoration-color: #008000; font-weight: bold}\nbody {\n    color: #000000;\n    background-color: #ffffff;\n}\n</style>\n</head>\n<html>\n<body>\n    <code>\n        <pre style="font-family:Menlo,\'DejaVu Sans Mono\',consolas,\'Courier New\',monospace"><span class="r1">foo &lt;</span><span class="r2">script</span><span class="r1">&gt; </span><span class="r3">&#x27;test&#x27;</span><span class="r1"> </span><a class="r1" href="https://example.org">Click</a>\n</pre>\n    </code>\n</body>\n</html>\n'
     assert html == expected
 
 
@@ -337,7 +449,7 @@ def test_export_html_inline():
     console = Console(record=True, width=100)
     console.print("[b]foo [link=https://example.org]Click[/link]")
     html = console.export_html(inline_styles=True)
-    expected = '<!DOCTYPE html>\n<head>\n<meta charset="UTF-8">\n<style>\n\nbody {\n    color: #000000;\n    background-color: #ffffff;\n}\n</style>\n</head>\n<html>\n<body>\n    <code>\n        <pre style="font-family:Menlo,\'DejaVu Sans Mono\',consolas,\'Courier New\',monospace"><span style="font-weight: bold">foo </span><a href="https://example.org"><span style="font-weight: bold">Click</span></a>\n</pre>\n    </code>\n</body>\n</html>\n'
+    expected = '<!DOCTYPE html>\n<head>\n<meta charset="UTF-8">\n<style>\n\nbody {\n    color: #000000;\n    background-color: #ffffff;\n}\n</style>\n</head>\n<html>\n<body>\n    <code>\n        <pre style="font-family:Menlo,\'DejaVu Sans Mono\',consolas,\'Courier New\',monospace"><span style="font-weight: bold">foo </span><span style="font-weight: bold"><a href="https://example.org">Click</a></span>\n</pre>\n    </code>\n</body>\n</html>\n'
     assert html == expected
 
 
@@ -386,14 +498,14 @@ def test_unicode_error() -> None:
 
 
 def test_bell() -> None:
-    console = Console(force_terminal=True)
+    console = Console(force_terminal=True, _environ={})
     console.begin_capture()
     console.bell()
     assert console.end_capture() == "\x07"
 
 
 def test_pager() -> None:
-    console = Console()
+    console = Console(_environ={})
 
     pager_content: Optional[str] = None
 
@@ -422,7 +534,7 @@ def test_out() -> None:
 
 
 def test_render_group() -> None:
-    @render_group(fit=False)
+    @group(fit=False)
     def renderable():
         yield "one"
         yield "two"
@@ -431,12 +543,12 @@ def test_render_group() -> None:
 
     renderables = [renderable() for _ in range(4)]
     console = Console(width=42)
-    min_width, _ = measure_renderables(console, renderables, 42)
+    min_width, _ = measure_renderables(console, console.options, renderables)
     assert min_width == 42
 
 
 def test_render_group_fit() -> None:
-    @render_group()
+    @group()
     def renderable():
         yield "one"
         yield "two"
@@ -447,7 +559,7 @@ def test_render_group_fit() -> None:
 
     console = Console(width=42)
 
-    min_width, _ = measure_renderables(console, renderables, 42)
+    min_width, _ = measure_renderables(console, console.options, renderables)
     assert min_width == 5
 
 
@@ -467,3 +579,183 @@ def test_console_style() -> None:
     expected = "\x1b[31mfoo\x1b[0m\n"
     result = console.file.getvalue()
     assert result == expected
+
+
+def test_no_color():
+    console = Console(
+        file=io.StringIO(), color_system="truecolor", force_terminal=True, no_color=True
+    )
+    console.print("[bold magenta on red]FOO")
+    expected = "\x1b[1mFOO\x1b[0m\n"
+    result = console.file.getvalue()
+    print(repr(result))
+    assert result == expected
+
+
+def test_quiet():
+    console = Console(file=io.StringIO(), quiet=True)
+    console.print("Hello, World!")
+    assert console.file.getvalue() == ""
+
+
+def test_no_nested_live():
+    console = Console()
+    with pytest.raises(errors.LiveError):
+        with console.status("foo"):
+            with console.status("bar"):
+                pass
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="does not run on windows")
+def test_screen():
+    console = Console(
+        color_system=None, force_terminal=True, force_interactive=True, _environ={}
+    )
+    with console.capture() as capture:
+        with console.screen():
+            console.print("Don't panic")
+    expected = "\x1b[?1049h\x1b[H\x1b[?25lDon't panic\n\x1b[?1049l\x1b[?25h"
+    result = capture.get()
+    print(repr(result))
+    assert result == expected
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="does not run on windows")
+def test_screen_update():
+    console = Console(
+        width=20, height=4, color_system="truecolor", force_terminal=True, _environ={}
+    )
+    with console.capture() as capture:
+        with console.screen() as screen:
+            screen.update("foo", style="blue")
+            screen.update("bar")
+            screen.update()
+    result = capture.get()
+    print(repr(result))
+    expected = "\x1b[?1049h\x1b[H\x1b[?25l\x1b[34mfoo\x1b[0m\x1b[34m                 \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\x1b[34mbar\x1b[0m\x1b[34m                 \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\x1b[34mbar\x1b[0m\x1b[34m                 \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\n\x1b[34m                    \x1b[0m\x1b[?1049l\x1b[?25h"
+    assert result == expected
+
+
+def test_height():
+    console = Console(width=80, height=46)
+    assert console.height == 46
+
+
+def test_columns_env():
+    console = Console(_environ={"COLUMNS": "314"}, legacy_windows=False)
+    assert console.width == 314
+    # width take precedence
+    console = Console(width=40, _environ={"COLUMNS": "314"}, legacy_windows=False)
+    assert console.width == 40
+    # Should not fail
+    console = Console(width=40, _environ={"COLUMNS": "broken"}, legacy_windows=False)
+
+
+def test_lines_env():
+    console = Console(_environ={"LINES": "220"})
+    assert console.height == 220
+    # height take precedence
+    console = Console(height=40, _environ={"LINES": "220"})
+    assert console.height == 40
+    # Should not fail
+    console = Console(width=40, _environ={"LINES": "broken"})
+
+
+def test_screen_update_class():
+    screen_update = ScreenUpdate([[Segment("foo")], [Segment("bar")]], 5, 10)
+    assert screen_update.x == 5
+    assert screen_update.y == 10
+
+    console = Console(force_terminal=True)
+    console.begin_capture()
+    console.print(screen_update)
+    result = console.end_capture()
+    print(repr(result))
+    expected = "\x1b[11;6Hfoo\x1b[12;6Hbar"
+    assert result == expected
+
+
+def test_is_alt_screen():
+    console = Console(force_terminal=True)
+    if console.legacy_windows:
+        return
+    assert not console.is_alt_screen
+    with console.screen():
+        assert console.is_alt_screen
+    assert not console.is_alt_screen
+
+
+def test_update_screen():
+    console = Console(force_terminal=True, width=20, height=5, _environ={})
+    if console.legacy_windows:
+        return
+    with pytest.raises(errors.NoAltScreen):
+        console.update_screen("foo")
+    console.begin_capture()
+    with console.screen():
+        console.update_screen("foo")
+        console.update_screen("bar", region=Region(2, 3, 8, 4))
+    result = console.end_capture()
+    print(repr(result))
+    expected = "\x1b[?1049h\x1b[H\x1b[?25l\x1b[1;1Hfoo                 \x1b[2;1H                    \x1b[3;1H                    \x1b[4;1H                    \x1b[5;1H                    \x1b[4;3Hbar     \x1b[5;3H        \x1b[6;3H        \x1b[7;3H        \x1b[?1049l\x1b[?25h"
+    assert result == expected
+
+
+def test_update_screen_lines():
+    console = Console(force_terminal=True, width=20, height=5)
+    if console.legacy_windows:
+        return
+    with pytest.raises(errors.NoAltScreen):
+        console.update_screen_lines([])
+
+
+def test_update_options_markup():
+    console = Console()
+    options = console.options
+    assert options.update(markup=False).markup == False
+    assert options.update(markup=True).markup == True
+
+
+def test_print_width_zero():
+    console = Console()
+    with console.capture() as capture:
+        console.print("Hello", width=0)
+    assert capture.get() == ""
+
+
+def test_size_properties():
+    console = Console(width=80, height=25, legacy_windows=False)
+    assert console.size == ConsoleDimensions(80, 25)
+    console.size = (10, 20)
+    assert console.size == ConsoleDimensions(10, 20)
+    console.width = 5
+    assert console.size == ConsoleDimensions(5, 20)
+    console.height = 10
+    assert console.size == ConsoleDimensions(5, 10)
+
+
+def test_print_newline_start():
+    console = Console(width=80, height=25)
+    console.begin_capture()
+    console.print("Foo", new_line_start=True)
+    console.print("Foo\nbar\n", new_line_start=True)
+    result = console.end_capture()
+
+    assert result == "Foo\n\nFoo\nbar\n\n"
+
+
+def test_is_terminal_broken_file():
+    console = Console()
+
+    def _mock_isatty():
+        raise ValueError()
+
+    console.file.isatty = _mock_isatty
+
+    assert console.is_terminal == False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="not relevant on Windows")
+def test_detect_color_system():
+    console = Console(_environ={"TERM": "rxvt-unicode-256color"}, force_terminal=True)
+    assert console._detect_color_system() == ColorSystem.EIGHT_BIT

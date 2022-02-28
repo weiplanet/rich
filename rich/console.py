@@ -1,16 +1,19 @@
 import inspect
 import os
 import platform
-import shutil
 import sys
 import threading
 from abc import ABC, abstractmethod
-from collections import abc
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
 from getpass import getpass
+from html import escape
+from inspect import isclass
+from itertools import islice
+from threading import RLock
 from time import monotonic
+from types import FrameType, ModuleType, TracebackType
 from typing import (
     IO,
     TYPE_CHECKING,
@@ -19,27 +22,41 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Mapping,
     NamedTuple,
     Optional,
     TextIO,
+    Tuple,
+    Type,
     Union,
     cast,
 )
 
-from typing_extensions import Literal, Protocol, runtime_checkable
+if sys.version_info >= (3, 8):
+    from typing import Literal, Protocol, runtime_checkable
+else:
+    from typing_extensions import (
+        Literal,
+        Protocol,
+        runtime_checkable,
+    )  # pragma: no cover
 
 from . import errors, themes
 from ._emoji_replace import _emoji_replace
-from ._log_render import LogRender
+from ._log_render import FormatTimeCallable, LogRender
 from .align import Align, AlignMethod
 from .color import ColorSystem
 from .control import Control
+from .emoji import EmojiVariant
 from .highlighter import NullHighlighter, ReprHighlighter
 from .markup import render as render_markup
 from .measure import Measurement, measure_renderables
 from .pager import Pager, SystemPager
-from .pretty import Pretty
+from .pretty import Pretty, is_expandable
+from .protocol import rich_cast
+from .region import Region
 from .scope import render_scope
+from .screen import Screen
 from .segment import Segment
 from .style import Style, StyleType
 from .styled import Styled
@@ -49,6 +66,7 @@ from .theme import Theme, ThemeStack
 
 if TYPE_CHECKING:
     from ._windows import WindowsConsoleFeatures
+    from .live import Live
     from .status import Status
 
 WINDOWS = platform.system() == "Windows"
@@ -56,6 +74,13 @@ WINDOWS = platform.system() == "Windows"
 HighlighterType = Callable[[Union[str, "Text"]], "Text"]
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 OverflowMethod = Literal["fold", "crop", "ellipsis", "ignore"]
+
+
+class NoChange:
+    pass
+
+
+NO_CHANGE = NoChange()
 
 
 CONSOLE_HTML_FORMAT = """\
@@ -82,10 +107,21 @@ body {{
 _TERM_COLORS = {"256color": ColorSystem.EIGHT_BIT, "16color": ColorSystem.STANDARD}
 
 
+class ConsoleDimensions(NamedTuple):
+    """Size of the terminal."""
+
+    width: int
+    """The width of the console in 'cells'."""
+    height: int
+    """The height of the console in lines."""
+
+
 @dataclass
 class ConsoleOptions:
     """Options for __rich_console__ method."""
 
+    size: ConsoleDimensions
+    """Size of console."""
     legacy_windows: bool
     """legacy_windows: flag for legacy windows."""
     min_width: int
@@ -96,6 +132,8 @@ class ConsoleOptions:
     """True if the target is a terminal, otherwise False."""
     encoding: str
     """Encoding of terminal."""
+    max_height: int
+    """Height of container (starts as terminal)"""
     justify: Optional[JustifyMethod] = None
     """Justify value override for renderable."""
     overflow: Optional[OverflowMethod] = None
@@ -104,38 +142,101 @@ class ConsoleOptions:
     """Disable wrapping for text."""
     highlight: Optional[bool] = None
     """Highlight override for render_str."""
+    markup: Optional[bool] = None
+    """Enable markup when rendering strings."""
+    height: Optional[int] = None
 
     @property
     def ascii_only(self) -> bool:
         """Check if renderables should use ascii only."""
         return not self.encoding.startswith("utf")
 
+    def copy(self) -> "ConsoleOptions":
+        """Return a copy of the options.
+
+        Returns:
+            ConsoleOptions: a copy of self.
+        """
+        options: ConsoleOptions = ConsoleOptions.__new__(ConsoleOptions)
+        options.__dict__ = self.__dict__.copy()
+        return options
+
     def update(
         self,
-        width: int = None,
-        min_width: int = None,
-        max_width: int = None,
-        justify: JustifyMethod = None,
-        overflow: OverflowMethod = None,
-        no_wrap: bool = None,
-        highlight: bool = None,
+        *,
+        width: Union[int, NoChange] = NO_CHANGE,
+        min_width: Union[int, NoChange] = NO_CHANGE,
+        max_width: Union[int, NoChange] = NO_CHANGE,
+        justify: Union[Optional[JustifyMethod], NoChange] = NO_CHANGE,
+        overflow: Union[Optional[OverflowMethod], NoChange] = NO_CHANGE,
+        no_wrap: Union[Optional[bool], NoChange] = NO_CHANGE,
+        highlight: Union[Optional[bool], NoChange] = NO_CHANGE,
+        markup: Union[Optional[bool], NoChange] = NO_CHANGE,
+        height: Union[Optional[int], NoChange] = NO_CHANGE,
     ) -> "ConsoleOptions":
         """Update values, return a copy."""
-        options = replace(self)
-        if width is not None:
-            options.min_width = options.max_width = width
-        if min_width is not None:
+        options = self.copy()
+        if not isinstance(width, NoChange):
+            options.min_width = options.max_width = max(0, width)
+        if not isinstance(min_width, NoChange):
             options.min_width = min_width
-        if max_width is not None:
+        if not isinstance(max_width, NoChange):
             options.max_width = max_width
-        if justify is not None:
+        if not isinstance(justify, NoChange):
             options.justify = justify
-        if overflow is not None:
+        if not isinstance(overflow, NoChange):
             options.overflow = overflow
-        if no_wrap is not None:
+        if not isinstance(no_wrap, NoChange):
             options.no_wrap = no_wrap
-        if highlight is not None:
+        if not isinstance(highlight, NoChange):
             options.highlight = highlight
+        if not isinstance(markup, NoChange):
+            options.markup = markup
+        if not isinstance(height, NoChange):
+            if height is not None:
+                options.max_height = height
+            options.height = None if height is None else max(0, height)
+        return options
+
+    def update_width(self, width: int) -> "ConsoleOptions":
+        """Update just the width, return a copy.
+
+        Args:
+            width (int): New width (sets both min_width and max_width)
+
+        Returns:
+            ~ConsoleOptions: New console options instance.
+        """
+        options = self.copy()
+        options.min_width = options.max_width = max(0, width)
+        return options
+
+    def update_height(self, height: int) -> "ConsoleOptions":
+        """Update the height, and return a copy.
+
+        Args:
+            height (int): New height
+
+        Returns:
+            ~ConsoleOptions: New Console options instance.
+        """
+        options = self.copy()
+        options.max_height = options.height = height
+        return options
+
+    def update_dimensions(self, width: int, height: int) -> "ConsoleOptions":
+        """Update the width and height, and return a copy.
+
+        Args:
+            width (int): New width (sets both min_width and max_width).
+            height (int): New height.
+
+        Returns:
+            ~ConsoleOptions: New console options instance.
+        """
+        options = self.copy()
+        options.min_width = options.max_width = max(0, width)
+        options.height = options.max_height = height
         return options
 
 
@@ -157,11 +258,12 @@ class ConsoleRenderable(Protocol):
         ...
 
 
+# A type that may be rendered by Console.
 RenderableType = Union[ConsoleRenderable, RichCast, str]
-"""A type that may be rendered by Console."""
 
+
+# The result of calling a __rich_console__ method.
 RenderResult = Iterable[Union[RenderableType, Segment]]
-"""The result of calling a __rich_console__ method."""
 
 
 _null_highlighter = NullHighlighter()
@@ -169,6 +271,36 @@ _null_highlighter = NullHighlighter()
 
 class CaptureError(Exception):
     """An error in the Capture context manager."""
+
+
+class NewLine:
+    """A renderable to generate new line(s)"""
+
+    def __init__(self, count: int = 1) -> None:
+        self.count = count
+
+    def __rich_console__(
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> Iterable[Segment]:
+        yield Segment("\n" * self.count)
+
+
+class ScreenUpdate:
+    """Render a list of lines at a given offset."""
+
+    def __init__(self, lines: List[List[Segment]], x: int, y: int) -> None:
+        self._lines = lines
+        self.x = x
+        self.y = y
+
+    def __rich_console__(
+        self, console: "Console", options: ConsoleOptions
+    ) -> RenderResult:
+        x = self.x
+        move_to = Control.move_to
+        for offset, line in enumerate(self._lines, self.y):
+            yield move_to(x, offset)
+            yield from line
 
 
 class Capture:
@@ -187,7 +319,12 @@ class Capture:
         self._console.begin_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         self._result = self._console.end_capture()
 
     def get(self) -> str:
@@ -200,7 +337,7 @@ class Capture:
 
 
 class ThemeContext:
-    """A context manager to use a temporary theme. See :meth:`~rich.console.Console.theme` for usage."""
+    """A context manager to use a temporary theme. See :meth:`~rich.console.Console.use_theme` for usage."""
 
     def __init__(self, console: "Console", theme: Theme, inherit: bool = True) -> None:
         self.console = console
@@ -211,7 +348,12 @@ class ThemeContext:
         self.console.push_theme(self.theme)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         self.console.pop_theme()
 
 
@@ -221,7 +363,7 @@ class PagerContext:
     def __init__(
         self,
         console: "Console",
-        pager: Pager = None,
+        pager: Optional[Pager] = None,
         styles: bool = False,
         links: bool = False,
     ) -> None:
@@ -234,7 +376,12 @@ class PagerContext:
         self._console._enter_buffer()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         if exc_type is None:
             with self._console._lock:
                 buffer: List[Segment] = self._console._buffer[:]
@@ -249,7 +396,54 @@ class PagerContext:
         self._console._exit_buffer()
 
 
-class RenderGroup:
+class ScreenContext:
+    """A context manager that enables an alternative screen. See :meth:`~rich.console.Console.screen` for usage."""
+
+    def __init__(
+        self, console: "Console", hide_cursor: bool, style: StyleType = ""
+    ) -> None:
+        self.console = console
+        self.hide_cursor = hide_cursor
+        self.screen = Screen(style=style)
+        self._changed = False
+
+    def update(
+        self, *renderables: RenderableType, style: Optional[StyleType] = None
+    ) -> None:
+        """Update the screen.
+
+        Args:
+            renderable (RenderableType, optional): Optional renderable to replace current renderable,
+                or None for no change. Defaults to None.
+            style: (Style, optional): Replacement style, or None for no change. Defaults to None.
+        """
+        if renderables:
+            self.screen.renderable = (
+                Group(*renderables) if len(renderables) > 1 else renderables[0]
+            )
+        if style is not None:
+            self.screen.style = style
+        self.console.print(self.screen, end="")
+
+    def __enter__(self) -> "ScreenContext":
+        self._changed = self.console.set_alt_screen(True)
+        if self._changed and self.hide_cursor:
+            self.console.show_cursor(False)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        if self._changed:
+            self.console.set_alt_screen(False)
+            if self.hide_cursor:
+                self.console.show_cursor(True)
+
+
+class Group:
     """Takes a group of renderables and returns a renderable object that renders the group.
 
     Args:
@@ -268,11 +462,13 @@ class RenderGroup:
             self._render = list(self._renderables)
         return self._render
 
-    def __rich_measure__(self, console: "Console", max_width: int) -> "Measurement":
+    def __rich_measure__(
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "Measurement":
         if self.fit:
-            return measure_renderables(console, self.renderables, max_width)
+            return measure_renderables(console, options, self.renderables)
         else:
-            return Measurement(max_width, max_width)
+            return Measurement(options.max_width, options.max_width)
 
     def __rich_console__(
         self, console: "Console", options: "ConsoleOptions"
@@ -280,33 +476,26 @@ class RenderGroup:
         yield from self.renderables
 
 
-def render_group(fit: bool = True) -> Callable:
+def group(fit: bool = True) -> Callable[..., Callable[..., Group]]:
     """A decorator that turns an iterable of renderables in to a group.
 
     Args:
         fit (bool, optional): Fit dimension of group to contents, or fill available space. Defaults to True.
     """
 
-    def decorator(method):
-        """Convert a method that returns an iterable of renderables in to a RenderGroup."""
+    def decorator(
+        method: Callable[..., Iterable[RenderableType]]
+    ) -> Callable[..., Group]:
+        """Convert a method that returns an iterable of renderables in to a Group."""
 
         @wraps(method)
-        def _replace(*args, **kwargs):
+        def _replace(*args: Any, **kwargs: Any) -> Group:
             renderables = method(*args, **kwargs)
-            return RenderGroup(*renderables, fit=fit)
+            return Group(*renderables, fit=fit)
 
         return _replace
 
     return decorator
-
-
-class ConsoleDimensions(NamedTuple):
-    """Size of the terminal."""
-
-    width: int
-    """The width of the console in 'cells'."""
-    height: int
-    """The height of the console in lines."""
 
 
 def _is_jupyter() -> bool:  # pragma: no cover
@@ -315,8 +504,9 @@ def _is_jupyter() -> bool:  # pragma: no cover
         get_ipython  # type: ignore
     except NameError:
         return False
-    shell = get_ipython().__class__.__name__  # type: ignore
-    if shell == "ZMQInteractiveShell":
+    ipython = get_ipython()  # type: ignore
+    shell = ipython.__class__.__name__
+    if "google.colab" in str(ipython.__class__) or shell == "ZMQInteractiveShell":
         return True  # Jupyter notebook or qtconsole
     elif shell == "TerminalInteractiveShell":
         return False  # Terminal running IPython
@@ -384,7 +574,7 @@ def detect_legacy_windows() -> bool:
 if detect_legacy_windows():  # pragma: no cover
     from colorama import init
 
-    init()
+    init(strip=False)
 
 
 class Console:
@@ -395,21 +585,26 @@ class Console:
             either ``"standard"``, ``"256"`` or ``"truecolor"``. Leave as ``"auto"`` to autodetect.
         force_terminal (Optional[bool], optional): Enable/disable terminal control codes, or None to auto-detect terminal. Defaults to None.
         force_jupyter (Optional[bool], optional): Enable/disable Jupyter rendering, or None to auto-detect Jupyter. Defaults to None.
+        force_interactive (Optional[bool], optional): Enable/disable interactive mode, or None to auto detect. Defaults to None.
         soft_wrap (Optional[bool], optional): Set soft wrap default on print method. Defaults to False.
         theme (Theme, optional): An optional style theme object, or ``None`` for default theme.
-        stderr (bool, optional): Use stderr rather than stdout if ``file `` is not specified. Defaults to False.
+        stderr (bool, optional): Use stderr rather than stdout if ``file`` is not specified. Defaults to False.
         file (IO, optional): A file object where the console should write to. Defaults to stdout.
+        quiet (bool, Optional): Boolean to suppress all output. Defaults to False.
         width (int, optional): The width of the terminal. Leave as default to auto-detect width.
         height (int, optional): The height of the terminal. Leave as default to auto-detect height.
         style (StyleType, optional): Style to apply to all output, or None for no style. Defaults to None.
+        no_color (Optional[bool], optional): Enabled no color mode, or None to auto detect. Defaults to None.
+        tab_size (int, optional): Number of spaces used to replace a tab character. Defaults to 8.
         record (bool, optional): Boolean to enable recording of terminal output,
             required to call :meth:`export_html` and :meth:`export_text`. Defaults to False.
         markup (bool, optional): Boolean to enable :ref:`console_markup`. Defaults to True.
         emoji (bool, optional): Enable emoji code. Defaults to True.
+        emoji_variant (str, optional): Optional emoji variant, either "text" or "emoji". Defaults to None.
         highlight (bool, optional): Enable automatic highlighting. Defaults to True.
         log_time (bool, optional): Boolean to enable logging of time by :meth:`log` methods. Defaults to True.
         log_path (bool, optional): Boolean to enable the logging of the caller by :meth:`log`. Defaults to True.
-        log_time_format (str, optional): Log time format if ``log_time`` is enabled. Defaults to "[%X] ".
+        log_time_format (Union[str, TimeFormatterCallable], optional): If ``log_time`` is enabled, either string for strftime or callable that formats the time. Defaults to "[%X] ".
         highlighter (HighlighterType, optional): Default highlighter.
         legacy_windows (bool, optional): Enable legacy Windows mode, or ``None`` to auto detect. Defaults to ``None``.
         safe_box (bool, optional): Restrict box options that don't render on legacy Windows.
@@ -418,43 +613,51 @@ class Console:
         get_time (Callable[[], time], optional): Callable that gets the current time in seconds, default uses time.monotonic.
     """
 
+    _environ: Mapping[str, str] = os.environ
+
     def __init__(
         self,
         *,
         color_system: Optional[
             Literal["auto", "standard", "256", "truecolor", "windows"]
         ] = "auto",
-        force_terminal: bool = None,
-        force_jupyter: bool = None,
+        force_terminal: Optional[bool] = None,
+        force_jupyter: Optional[bool] = None,
+        force_interactive: Optional[bool] = None,
         soft_wrap: bool = False,
-        theme: Theme = None,
+        theme: Optional[Theme] = None,
         stderr: bool = False,
-        file: IO[str] = None,
-        width: int = None,
-        height: int = None,
-        style: StyleType = None,
+        file: Optional[IO[str]] = None,
+        quiet: bool = False,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        style: Optional[StyleType] = None,
+        no_color: Optional[bool] = None,
         tab_size: int = 8,
         record: bool = False,
         markup: bool = True,
         emoji: bool = True,
+        emoji_variant: Optional[EmojiVariant] = None,
         highlight: bool = True,
         log_time: bool = True,
         log_path: bool = True,
-        log_time_format: str = "[%X]",
+        log_time_format: Union[str, FormatTimeCallable] = "[%X]",
         highlighter: Optional["HighlighterType"] = ReprHighlighter(),
-        legacy_windows: bool = None,
+        legacy_windows: Optional[bool] = None,
         safe_box: bool = True,
-        get_datetime: Callable[[], datetime] = None,
-        get_time: Callable[[], float] = None,
-        _environ: Dict[str, str] = None,
+        get_datetime: Optional[Callable[[], datetime]] = None,
+        get_time: Optional[Callable[[], float]] = None,
+        _environ: Optional[Mapping[str, str]] = None,
     ):
         # Copy of os.environ allows us to replace it for testing
-        self._environ = os.environ if _environ is None else _environ
+        if _environ is not None:
+            self._environ = _environ
 
         self.is_jupyter = _is_jupyter() if force_jupyter is None else force_jupyter
         if self.is_jupyter:
             width = width or 93
             height = height or 100
+
         self.soft_wrap = soft_wrap
         self._width = width
         self._height = height
@@ -462,16 +665,30 @@ class Console:
         self.record = record
         self._markup = markup
         self._emoji = emoji
+        self._emoji_variant: Optional[EmojiVariant] = emoji_variant
         self._highlight = highlight
         self.legacy_windows: bool = (
             (detect_legacy_windows() and not self.is_jupyter)
             if legacy_windows is None
             else legacy_windows
         )
+        if width is None:
+            columns = self._environ.get("COLUMNS")
+            if columns is not None and columns.isdigit():
+                width = int(columns) - self.legacy_windows
+        if height is None:
+            lines = self._environ.get("LINES")
+            if lines is not None and lines.isdigit():
+                height = int(lines)
+
+        self.soft_wrap = soft_wrap
+        self._width = width
+        self._height = height
 
         self._color_system: Optional[ColorSystem]
         self._force_terminal = force_terminal
         self._file = file
+        self.quiet = quiet
         self.stderr = stderr
 
         if color_system is None:
@@ -492,6 +709,14 @@ class Console:
         self.get_datetime = get_datetime or datetime.now
         self.get_time = get_time or monotonic
         self.style = style
+        self.no_color = (
+            no_color if no_color is not None else "NO_COLOR" in self._environ
+        )
+        self.is_interactive = (
+            (self.is_terminal and not self.is_dumb_terminal)
+            if force_interactive is None
+            else force_interactive
+        )
 
         self._record_buffer_lock = threading.RLock()
         self._thread_locals = ConsoleThreadLocals(
@@ -499,6 +724,8 @@ class Console:
         )
         self._record_buffer: List[Segment] = []
         self._render_hooks: List[RenderHook] = []
+        self._live: Optional["Live"] = None
+        self._is_alt_screen = False
 
     def __repr__(self) -> str:
         return f"<console width={self.width} {str(self._color_system)}>"
@@ -538,7 +765,7 @@ class Console:
         """Detect color system from env vars."""
         if self.is_jupyter:
             return ColorSystem.TRUECOLOR
-        if not self.is_terminal or "NO_COLOR" in self._environ or self.is_dumb_terminal:
+        if not self.is_terminal or self.is_dumb_terminal:
             return None
         if WINDOWS:  # pragma: no cover
             if self.legacy_windows:  # pragma: no cover
@@ -554,7 +781,7 @@ class Console:
             if color_term in ("truecolor", "24bit"):
                 return ColorSystem.TRUECOLOR
             term = self._environ.get("TERM", "").strip().lower()
-            _term_name, _hyphen, colors = term.partition("-")
+            _term_name, _hyphen, colors = term.rpartition("-")
             color_system = _TERM_COLORS.get(colors, ColorSystem.STANDARD)
             return color_system
 
@@ -567,25 +794,45 @@ class Console:
         self._buffer_index -= 1
         self._check_buffer()
 
+    def set_live(self, live: "Live") -> None:
+        """Set Live instance. Used by Live context manager.
+
+        Args:
+            live (Live): Live instance using this Console.
+
+        Raises:
+            errors.LiveError: If this Console has a Live context currently active.
+        """
+        with self._lock:
+            if self._live is not None:
+                raise errors.LiveError("Only one live display may be active at once")
+            self._live = live
+
+    def clear_live(self) -> None:
+        """Clear the Live instance."""
+        with self._lock:
+            self._live = None
+
     def push_render_hook(self, hook: RenderHook) -> None:
         """Add a new render hook to the stack.
 
         Args:
             hook (RenderHook): Render hook instance.
         """
-
-        self._render_hooks.append(hook)
+        with self._lock:
+            self._render_hooks.append(hook)
 
     def pop_render_hook(self) -> None:
         """Pop the last renderhook from the stack."""
-        self._render_hooks.pop()
+        with self._lock:
+            self._render_hooks.pop()
 
     def __enter__(self) -> "Console":
         """Own context manager to enter buffer context."""
         self._enter_buffer()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """Exit buffer context."""
         self._exit_buffer()
 
@@ -663,8 +910,14 @@ class Console:
         """
         if self._force_terminal is not None:
             return self._force_terminal
-        isatty = getattr(self.file, "isatty", None)
-        return False if isatty is None else isatty()
+        isatty: Optional[Callable[[], bool]] = getattr(self.file, "isatty", None)
+        try:
+            return False if isatty is None else isatty()
+        except ValueError:
+            # in some situation (at the end of a pytest run for example) isatty() can raise
+            # ValueError: I/O operation on closed file
+            # return False because we aren't in a terminal anymore
+            return False
 
     @property
     def is_dumb_terminal(self) -> bool:
@@ -682,6 +935,8 @@ class Console:
     def options(self) -> ConsoleOptions:
         """Get default console options."""
         return ConsoleOptions(
+            max_height=self.size.height,
+            size=self.size,
             legacy_windows=self.legacy_windows,
             min_width=1,
             max_width=self.width,
@@ -698,28 +953,53 @@ class Console:
         """
 
         if self._width is not None and self._height is not None:
-            return ConsoleDimensions(self._width, self._height)
+            return ConsoleDimensions(self._width - self.legacy_windows, self._height)
 
         if self.is_dumb_terminal:
             return ConsoleDimensions(80, 25)
 
         width: Optional[int] = None
         height: Optional[int] = None
+
         if WINDOWS:  # pragma: no cover
-            width, height = shutil.get_terminal_size()
+            try:
+                width, height = os.get_terminal_size()
+            except OSError:  # Probably not a terminal
+                pass
         else:
             try:
-                width, height = os.get_terminal_size(sys.stdin.fileno())
+                width, height = os.get_terminal_size(sys.__stdin__.fileno())
             except (AttributeError, ValueError, OSError):
-                pass
+                try:
+                    width, height = os.get_terminal_size(sys.__stdout__.fileno())
+                except (AttributeError, ValueError, OSError):
+                    pass
+
+        columns = self._environ.get("COLUMNS")
+        if columns is not None and columns.isdigit():
+            width = int(columns)
+        lines = self._environ.get("LINES")
+        if lines is not None and lines.isdigit():
+            height = int(lines)
 
         # get_terminal_size can report 0, 0 if run from pseudo-terminal
         width = width or 80
         height = height or 25
         return ConsoleDimensions(
-            (width - self.legacy_windows) if self._width is None else self._width,
+            width - self.legacy_windows if self._width is None else self._width,
             height if self._height is None else self._height,
         )
+
+    @size.setter
+    def size(self, new_size: Tuple[int, int]) -> None:
+        """Set a new size for the terminal.
+
+        Args:
+            new_size (Tuple[int, int]): New width and height.
+        """
+        width, height = new_size
+        self._width = width
+        self._height = height
 
     @property
     def width(self) -> int:
@@ -728,12 +1008,38 @@ class Console:
         Returns:
             int: The width (in characters) of the console.
         """
-        width, _ = self.size
-        return width
+        return self.size.width
+
+    @width.setter
+    def width(self, width: int) -> None:
+        """Set width.
+
+        Args:
+            width (int): New width.
+        """
+        self._width = width
+
+    @property
+    def height(self) -> int:
+        """Get the height of the console.
+
+        Returns:
+            int: The height (in lines) of the console.
+        """
+        return self.size.height
+
+    @height.setter
+    def height(self, height: int) -> None:
+        """Set height.
+
+        Args:
+            height (int): new height.
+        """
+        self._height = height
 
     def bell(self) -> None:
         """Play a 'bell' sound (if supported by the terminal)."""
-        self.control("\x07")
+        self.control(Control.bell())
 
     def capture(self) -> Capture:
         """A context manager to *capture* the result of print() or log() in a string,
@@ -753,13 +1059,13 @@ class Console:
         return capture
 
     def pager(
-        self, pager: Pager = None, styles: bool = False, links: bool = False
+        self, pager: Optional[Pager] = None, styles: bool = False, links: bool = False
     ) -> PagerContext:
         """A context manager to display anything printed within a "pager". The pager application
         is defined by the system and will typically support at least pressing a key to scroll.
 
         Args:
-            pager (Pager, optional): A pager object, or None to use :class:~rich.pager.SystemPager`. Defaults to None.
+            pager (Pager, optional): A pager object, or None to use :class:`~rich.pager.SystemPager`. Defaults to None.
             styles (bool, optional): Show styles in pager. Defaults to False.
             links (bool, optional): Show links in pager. Defaults to False.
 
@@ -783,9 +1089,7 @@ class Console:
         """
 
         assert count >= 0, "count must be >= 0"
-        if count:
-            self._buffer.append(Segment("\n" * count))
-            self._check_buffer()
+        self.print(NewLine(count))
 
     def clear(self, home: bool = True) -> None:
         """Clear the screen.
@@ -793,11 +1097,15 @@ class Console:
         Args:
             home (bool, optional): Also move the cursor to 'home' position. Defaults to True.
         """
-        self.control("\033[2J\033[H" if home else "\033[2J")
+        if home:
+            self.control(Control.clear(), Control.home())
+        else:
+            self.control(Control.clear())
 
     def status(
         self,
         status: RenderableType,
+        *,
         spinner: str = "dots",
         spinner_style: str = "status.spinner",
         speed: float = 1.0,
@@ -807,7 +1115,6 @@ class Console:
 
         Args:
             status (RenderableType): A status renderable (str or Text typically).
-            console (Console, optional): Console instance to use, or None for global console. Defaults to None.
             spinner (str, optional): Name of spinner animation (see python -m rich.spinner). Defaults to "dots".
             spinner_style (StyleType, optional): Style of spinner. Defaults to "status.spinner".
             speed (float, optional): Speed factor for spinner animation. Defaults to 1.0.
@@ -828,17 +1135,80 @@ class Console:
         )
         return status_renderable
 
-    def show_cursor(self, show: bool = True) -> None:
+    def show_cursor(self, show: bool = True) -> bool:
         """Show or hide the cursor.
 
         Args:
             show (bool, optional): Set visibility of the cursor.
         """
         if self.is_terminal and not self.legacy_windows:
-            self.control("\033[?25h" if show else "\033[?25l")
+            self.control(Control.show_cursor(show))
+            return True
+        return False
+
+    def set_alt_screen(self, enable: bool = True) -> bool:
+        """Enables alternative screen mode.
+
+        Note, if you enable this mode, you should ensure that is disabled before
+        the application exits. See :meth:`~rich.Console.screen` for a context manager
+        that handles this for you.
+
+        Args:
+            enable (bool, optional): Enable (True) or disable (False) alternate screen. Defaults to True.
+
+        Returns:
+            bool: True if the control codes were written.
+
+        """
+        changed = False
+        if self.is_terminal and not self.legacy_windows:
+            self.control(Control.alt_screen(enable))
+            changed = True
+            self._is_alt_screen = enable
+        return changed
+
+    @property
+    def is_alt_screen(self) -> bool:
+        """Check if the alt screen was enabled.
+
+        Returns:
+            bool: True if the alt screen was enabled, otherwise False.
+        """
+        return self._is_alt_screen
+
+    def screen(
+        self, hide_cursor: bool = True, style: Optional[StyleType] = None
+    ) -> "ScreenContext":
+        """Context manager to enable and disable 'alternative screen' mode.
+
+        Args:
+            hide_cursor (bool, optional): Also hide the cursor. Defaults to False.
+            style (Style, optional): Optional style for screen. Defaults to None.
+
+        Returns:
+            ~ScreenContext: Context which enables alternate screen on enter, and disables it on exit.
+        """
+        return ScreenContext(self, hide_cursor=hide_cursor, style=style or "")
+
+    def measure(
+        self, renderable: RenderableType, *, options: Optional[ConsoleOptions] = None
+    ) -> Measurement:
+        """Measure a renderable. Returns a :class:`~rich.measure.Measurement` object which contains
+        information regarding the number of characters required to print the renderable.
+
+        Args:
+            renderable (RenderableType): Any renderable or string.
+            options (Optional[ConsoleOptions], optional): Options to use when measuring, or None
+                to use default options. Defaults to None.
+
+        Returns:
+            Measurement: A measurement of the renderable.
+        """
+        measurement = Measurement.get(self, options or self.options, renderable)
+        return measurement
 
     def render(
-        self, renderable: RenderableType, options: ConsoleOptions = None
+        self, renderable: RenderableType, options: Optional[ConsoleOptions] = None
     ) -> Iterable[Segment]:
         """Render an object in to an iterable of `Segment` instances.
 
@@ -859,15 +1229,15 @@ class Console:
             # No space to render anything. This prevents potential recursion errors.
             return
         render_iterable: RenderResult
-        if isinstance(renderable, RichCast):
-            renderable = renderable.__rich__()
-        if isinstance(renderable, ConsoleRenderable):
-            render_iterable = renderable.__rich_console__(self, _options)
+
+        renderable = rich_cast(renderable)
+        if hasattr(renderable, "__rich_console__") and not isclass(renderable):
+            render_iterable = renderable.__rich_console__(self, _options)  # type: ignore
         elif isinstance(renderable, str):
-            yield from self.render(
-                self.render_str(renderable, highlight=_options.highlight), _options
+            text_renderable = self.render_str(
+                renderable, highlight=_options.highlight, markup=_options.markup
             )
-            return
+            render_iterable = text_renderable.__rich_console__(self, _options)
         else:
             raise errors.NotRenderableError(
                 f"Unable to render {renderable!r}; "
@@ -880,8 +1250,9 @@ class Console:
             raise errors.NotRenderableError(
                 f"object {render_iterable!r} is not renderable"
             )
+        _Segment = Segment
         for render_output in iter_render:
-            if isinstance(render_output, Segment):
+            if isinstance(render_output, _Segment):
                 yield render_output
             else:
                 yield from self.render(render_output, _options)
@@ -893,6 +1264,7 @@ class Console:
         *,
         style: Optional[Style] = None,
         pad: bool = True,
+        new_lines: bool = False,
     ) -> List[List[Segment]]:
         """Render objects in to a list of lines.
 
@@ -904,32 +1276,51 @@ class Console:
             options (Optional[ConsoleOptions], optional): Console options, or None to use self.options. Default to ``None``.
             style (Style, optional): Optional style to apply to renderables. Defaults to ``None``.
             pad (bool, optional): Pad lines shorter than render width. Defaults to ``True``.
+            new_lines (bool, optional): Include "\n" characters at end of lines.
 
         Returns:
             List[List[Segment]]: A list of lines, where a line is a list of Segment objects.
         """
-        render_options = options or self.options
-        _rendered = self.render(renderable, render_options)
-        if style is not None:
-            _rendered = Segment.apply_style(_rendered, style)
-        lines = list(
-            Segment.split_and_crop_lines(
-                _rendered, render_options.max_width, include_new_lines=False, pad=pad
+        with self._lock:
+            render_options = options or self.options
+            _rendered = self.render(renderable, render_options)
+            if style:
+                _rendered = Segment.apply_style(_rendered, style)
+            lines = list(
+                islice(
+                    Segment.split_and_crop_lines(
+                        _rendered,
+                        render_options.max_width,
+                        include_new_lines=new_lines,
+                        pad=pad,
+                    ),
+                    None,
+                    render_options.height,
+                )
             )
-        )
-        return lines
+            if render_options.height is not None:
+                extra_lines = render_options.height - len(lines)
+                if extra_lines > 0:
+                    pad_line = [
+                        [Segment(" " * render_options.max_width, style), Segment("\n")]
+                        if new_lines
+                        else [Segment(" " * render_options.max_width, style)]
+                    ]
+                    lines.extend(pad_line * extra_lines)
+
+            return lines
 
     def render_str(
         self,
         text: str,
         *,
         style: Union[str, Style] = "",
-        justify: JustifyMethod = None,
-        overflow: OverflowMethod = None,
-        emoji: bool = None,
-        markup: bool = None,
-        highlight: bool = None,
-        highlighter: HighlighterType = None,
+        justify: Optional[JustifyMethod] = None,
+        overflow: Optional[OverflowMethod] = None,
+        emoji: Optional[bool] = None,
+        markup: Optional[bool] = None,
+        highlight: Optional[bool] = None,
+        highlighter: Optional[HighlighterType] = None,
     ) -> "Text":
         """Convert a string to a Text instance. This is is called automatically if
         you print or log a string.
@@ -952,12 +1343,19 @@ class Console:
         highlight_enabled = highlight or (highlight is None and self._highlight)
 
         if markup_enabled:
-            rich_text = render_markup(text, style=style, emoji=emoji_enabled)
+            rich_text = render_markup(
+                text,
+                style=style,
+                emoji=emoji_enabled,
+                emoji_variant=self._emoji_variant,
+            )
             rich_text.justify = justify
             rich_text.overflow = overflow
         else:
             rich_text = Text(
-                _emoji_replace(text) if emoji_enabled else text,
+                _emoji_replace(text, default_variant=self._emoji_variant)
+                if emoji_enabled
+                else text,
                 justify=justify,
                 overflow=overflow,
                 style=style,
@@ -972,7 +1370,7 @@ class Console:
         return rich_text
 
     def get_style(
-        self, name: Union[str, Style], *, default: Union[Style, str] = None
+        self, name: Union[str, Style], *, default: Optional[Union[Style, str]] = None
     ) -> Style:
         """Get a Style instance by it's theme name or parse a definition.
 
@@ -997,7 +1395,9 @@ class Console:
         except errors.StyleSyntaxError as error:
             if default is not None:
                 return self.get_style(default)
-            raise errors.MissingStyle(f"Failed to get style {name!r}; {error}")
+            raise errors.MissingStyle(
+                f"Failed to get style {name!r}; {error}"
+            ) from None
 
     def _collect_renderables(
         self,
@@ -1005,24 +1405,24 @@ class Console:
         sep: str,
         end: str,
         *,
-        justify: JustifyMethod = None,
-        emoji: bool = None,
-        markup: bool = None,
-        highlight: bool = None,
+        justify: Optional[JustifyMethod] = None,
+        emoji: Optional[bool] = None,
+        markup: Optional[bool] = None,
+        highlight: Optional[bool] = None,
     ) -> List[ConsoleRenderable]:
-        """Combined a number of renderables and text in to one renderable.
+        """Combine a number of renderables and text into one renderable.
 
         Args:
             objects (Iterable[Any]): Anything that Rich can render.
-            sep (str, optional): String to write between print data. Defaults to " ".
-            end (str, optional): String to write at end of print data. Defaults to "\\n".
+            sep (str): String to write between print data.
+            end (str): String to write at end of print data.
             justify (str, optional): One of "left", "right", "center", or "full". Defaults to ``None``.
             emoji (Optional[bool], optional): Enable emoji code, or ``None`` to use console default.
             markup (Optional[bool], optional): Enable markup, or ``None`` to use console default.
             highlight (Optional[bool], optional): Enable automatic highlighting, or ``None`` to use console default.
 
         Returns:
-            List[ConsoleRenderable]: A list oxf things to render.
+            List[ConsoleRenderable]: A list of things to render.
         """
         renderables: List[ConsoleRenderable] = []
         _append = renderables.append
@@ -1048,19 +1448,19 @@ class Console:
                 del text[:]
 
         for renderable in objects:
-            rich_cast = getattr(renderable, "__rich__", None)
-            if rich_cast:
-                renderable = rich_cast()
+            renderable = rich_cast(renderable)
             if isinstance(renderable, str):
                 append_text(
                     self.render_str(
                         renderable, emoji=emoji, markup=markup, highlighter=_highlighter
                     )
                 )
+            elif isinstance(renderable, Text):
+                append_text(renderable)
             elif isinstance(renderable, ConsoleRenderable):
                 check_text()
                 append(renderable)
-            elif isinstance(renderable, (abc.Mapping, abc.Sequence, abc.Set)):
+            elif is_expandable(renderable):
                 check_text()
                 append(Pretty(renderable, highlighter=_highlighter))
             else:
@@ -1095,23 +1495,23 @@ class Console:
         rule = Rule(title=title, characters=characters, style=style, align=align)
         self.print(rule)
 
-    def control(self, control_codes: Union["Control", str]) -> None:
+    def control(self, *control: Control) -> None:
         """Insert non-printing control codes.
 
         Args:
             control_codes (str): Control codes, such as those that may move the cursor.
         """
         if not self.is_dumb_terminal:
-            self._buffer.append(Segment.control(str(control_codes)))
-            self._check_buffer()
+            with self:
+                self._buffer.extend(_control.segment for _control in control)
 
     def out(
         self,
         *objects: Any,
-        sep=" ",
-        end="\n",
-        style: Union[str, Style] = None,
-        highlight: bool = None,
+        sep: str = " ",
+        end: str = "\n",
+        style: Optional[Union[str, Style]] = None,
+        highlight: Optional[bool] = None,
     ) -> None:
         """Output to the terminal. This is a low-level way of writing to the terminal which unlike
         :meth:`~rich.console.Console.print` won't pretty print, wrap text, or apply markup, but will
@@ -1119,7 +1519,7 @@ class Console:
 
         Args:
             sep (str, optional): String to write between print data. Defaults to " ".
-            end (str, optional): String to write at end of print data. Defaults to "\\n".
+            end (str, optional): String to write at end of print data. Defaults to "\\\\n".
             style (Union[str, Style], optional): A style to apply to output. Defaults to None.
             highlight (Optional[bool], optional): Enable automatic highlighting, or ``None`` to use
                 console default. Defaults to ``None``.
@@ -1140,25 +1540,27 @@ class Console:
     def print(
         self,
         *objects: Any,
-        sep=" ",
-        end="\n",
-        style: Union[str, Style] = None,
-        justify: JustifyMethod = None,
-        overflow: OverflowMethod = None,
-        no_wrap: bool = None,
-        emoji: bool = None,
-        markup: bool = None,
-        highlight: bool = None,
-        width: int = None,
+        sep: str = " ",
+        end: str = "\n",
+        style: Optional[Union[str, Style]] = None,
+        justify: Optional[JustifyMethod] = None,
+        overflow: Optional[OverflowMethod] = None,
+        no_wrap: Optional[bool] = None,
+        emoji: Optional[bool] = None,
+        markup: Optional[bool] = None,
+        highlight: Optional[bool] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         crop: bool = True,
-        soft_wrap: bool = None,
+        soft_wrap: Optional[bool] = None,
+        new_line_start: bool = False,
     ) -> None:
         """Print to the console.
 
         Args:
             objects (positional args): Objects to log to the terminal.
             sep (str, optional): String to write between print data. Defaults to " ".
-            end (str, optional): String to write at end of print data. Defaults to "\\n".
+            end (str, optional): String to write at end of print data. Defaults to "\\\\n".
             style (Union[str, Style], optional): A style to apply to output. Defaults to None.
             justify (str, optional): Justify method: "default", "left", "right", "center", or "full". Defaults to ``None``.
             overflow (str, optional): Overflow method: "ignore", "crop", "fold", or "ellipsis". Defaults to None.
@@ -1168,12 +1570,12 @@ class Console:
             highlight (Optional[bool], optional): Enable automatic highlighting, or ``None`` to use console default. Defaults to ``None``.
             width (Optional[int], optional): Width of output, or ``None`` to auto-detect. Defaults to ``None``.
             crop (Optional[bool], optional): Crop output to width of terminal. Defaults to True.
-            soft_wrap (bool, optional): Enable soft wrap mode which disables word wrapping and cropping of text or None for
+            soft_wrap (bool, optional): Enable soft wrap mode which disables word wrapping and cropping of text or ``None`` for
                 Console default. Defaults to ``None``.
+            new_line_start (bool, False): Insert a new line at the start if the output contains more than one line. Defaults to ``False``.
         """
         if not objects:
-            self.line()
-            return
+            objects = (NewLine(),)
 
         if soft_wrap is None:
             soft_wrap = self.soft_wrap
@@ -1183,7 +1585,7 @@ class Console:
             if overflow is None:
                 overflow = "ignore"
             crop = False
-
+        render_hooks = self._render_hooks[:]
         with self:
             renderables = self._collect_renderables(
                 objects,
@@ -1194,14 +1596,18 @@ class Console:
                 markup=markup,
                 highlight=highlight,
             )
-            for hook in self._render_hooks:
+            for hook in render_hooks:
                 renderables = hook.process_renderables(renderables)
             render_options = self.options.update(
                 justify=justify,
                 overflow=overflow,
-                width=min(width, self.width) if width else None,
+                width=min(width, self.width) if width is not None else NO_CHANGE,
+                height=height,
                 no_wrap=no_wrap,
+                markup=markup,
+                highlight=highlight,
             )
+
             new_segments: List[Segment] = []
             extend = new_segments.extend
             render = self.render
@@ -1215,6 +1621,12 @@ class Console:
                             render(renderable, render_options), self.get_style(style)
                         )
                     )
+            if new_line_start:
+                if (
+                    len("".join(segment.text for segment in new_segments).splitlines())
+                    > 1
+                ):
+                    new_segments.insert(0, Segment.line())
             if crop:
                 buffer_extend = self._buffer.extend
                 for line in Segment.split_and_crop_lines(
@@ -1224,6 +1636,121 @@ class Console:
             else:
                 self._buffer.extend(new_segments)
 
+    def print_json(
+        self,
+        json: Optional[str] = None,
+        *,
+        data: Any = None,
+        indent: Union[None, int, str] = 2,
+        highlight: bool = True,
+        skip_keys: bool = False,
+        ensure_ascii: bool = True,
+        check_circular: bool = True,
+        allow_nan: bool = True,
+        default: Optional[Callable[[Any], Any]] = None,
+        sort_keys: bool = False,
+    ) -> None:
+        """Pretty prints JSON. Output will be valid JSON.
+
+        Args:
+            json (Optional[str]): A string containing JSON.
+            data (Any): If json is not supplied, then encode this data.
+            indent (Union[None, int, str], optional): Number of spaces to indent. Defaults to 2.
+            highlight (bool, optional): Enable highlighting of output: Defaults to True.
+            skip_keys (bool, optional): Skip keys not of a basic type. Defaults to False.
+            ensure_ascii (bool, optional): Escape all non-ascii characters. Defaults to False.
+            check_circular (bool, optional): Check for circular references. Defaults to True.
+            allow_nan (bool, optional): Allow NaN and Infinity values. Defaults to True.
+            default (Callable, optional): A callable that converts values that can not be encoded
+                in to something that can be JSON encoded. Defaults to None.
+            sort_keys (bool, optional): Sort dictionary keys. Defaults to False.
+        """
+        from rich.json import JSON
+
+        if json is None:
+            json_renderable = JSON.from_data(
+                data,
+                indent=indent,
+                highlight=highlight,
+                skip_keys=skip_keys,
+                ensure_ascii=ensure_ascii,
+                check_circular=check_circular,
+                allow_nan=allow_nan,
+                default=default,
+                sort_keys=sort_keys,
+            )
+        else:
+            if not isinstance(json, str):
+                raise TypeError(
+                    f"json must be str. Did you mean print_json(data={json!r}) ?"
+                )
+            json_renderable = JSON(
+                json,
+                indent=indent,
+                highlight=highlight,
+                skip_keys=skip_keys,
+                ensure_ascii=ensure_ascii,
+                check_circular=check_circular,
+                allow_nan=allow_nan,
+                default=default,
+                sort_keys=sort_keys,
+            )
+        self.print(json_renderable, soft_wrap=True)
+
+    def update_screen(
+        self,
+        renderable: RenderableType,
+        *,
+        region: Optional[Region] = None,
+        options: Optional[ConsoleOptions] = None,
+    ) -> None:
+        """Update the screen at a given offset.
+
+        Args:
+            renderable (RenderableType): A Rich renderable.
+            region (Region, optional): Region of screen to update, or None for entire screen. Defaults to None.
+            x (int, optional): x offset. Defaults to 0.
+            y (int, optional): y offset. Defaults to 0.
+
+        Raises:
+            errors.NoAltScreen: If the Console isn't in alt screen mode.
+
+        """
+        if not self.is_alt_screen:
+            raise errors.NoAltScreen("Alt screen must be enabled to call update_screen")
+        render_options = options or self.options
+        if region is None:
+            x = y = 0
+            render_options = render_options.update_dimensions(
+                render_options.max_width, render_options.height or self.height
+            )
+        else:
+            x, y, width, height = region
+            render_options = render_options.update_dimensions(width, height)
+
+        lines = self.render_lines(renderable, options=render_options)
+        self.update_screen_lines(lines, x, y)
+
+    def update_screen_lines(
+        self, lines: List[List[Segment]], x: int = 0, y: int = 0
+    ) -> None:
+        """Update lines of the screen at a given offset.
+
+        Args:
+            lines (List[List[Segment]]): Rendered lines (as produced by :meth:`~rich.Console.render_lines`).
+            x (int, optional): x offset (column no). Defaults to 0.
+            y (int, optional): y offset (column no). Defaults to 0.
+
+        Raises:
+            errors.NoAltScreen: If the Console isn't in alt screen mode.
+        """
+        if not self.is_alt_screen:
+            raise errors.NoAltScreen("Alt screen must be enabled to call update_screen")
+        screen_update = ScreenUpdate(lines, x, y)
+        segments = self.render(screen_update)
+        self._buffer.extend(segments)
+        self._check_buffer()
+
     def print_exception(
         self,
         *,
@@ -1232,6 +1759,8 @@ class Console:
         theme: Optional[str] = None,
         word_wrap: bool = False,
         show_locals: bool = False,
+        suppress: Iterable[Union[str, ModuleType]] = (),
+        max_frames: int = 100,
     ) -> None:
         """Prints a rich render of the last exception and traceback.
 
@@ -1241,6 +1770,8 @@ class Console:
             theme (str, optional): Override pygments theme used in traceback
             word_wrap (bool, optional): Enable word wrapping of long lines. Defaults to False.
             show_locals (bool, optional): Enable display of local variables. Defaults to False.
+            suppress (Iterable[Union[str, ModuleType]]): Optional sequence of modules or paths to exclude from traceback.
+            max_frames (int): Maximum number of frames to show in a traceback, 0 for no maximum. Defaults to 100.
         """
         from .traceback import Traceback
 
@@ -1250,28 +1781,65 @@ class Console:
             theme=theme,
             word_wrap=word_wrap,
             show_locals=show_locals,
+            suppress=suppress,
+            max_frames=max_frames,
         )
         self.print(traceback)
+
+    @staticmethod
+    def _caller_frame_info(
+        offset: int,
+        currentframe: Callable[[], Optional[FrameType]] = inspect.currentframe,
+    ) -> Tuple[str, int, Dict[str, Any]]:
+        """Get caller frame information.
+
+        Args:
+            offset (int): the caller offset within the current frame stack.
+            currentframe (Callable[[], Optional[FrameType]], optional): the callable to use to
+                retrieve the current frame. Defaults to ``inspect.currentframe``.
+
+        Returns:
+            Tuple[str, int, Dict[str, Any]]: A tuple containing the filename, the line number and
+                the dictionary of local variables associated with the caller frame.
+
+        Raises:
+            RuntimeError: If the stack offset is invalid.
+        """
+        # Ignore the frame of this local helper
+        offset += 1
+
+        frame = currentframe()
+        if frame is not None:
+            # Use the faster currentframe where implemented
+            while offset and frame:
+                frame = frame.f_back
+                offset -= 1
+            assert frame is not None
+            return frame.f_code.co_filename, frame.f_lineno, frame.f_locals
+        else:
+            # Fallback to the slower stack
+            frame_info = inspect.stack()[offset]
+            return frame_info.filename, frame_info.lineno, frame_info.frame.f_locals
 
     def log(
         self,
         *objects: Any,
-        sep=" ",
-        end="\n",
-        style: Union[str, Style] = None,
-        justify: JustifyMethod = None,
-        emoji: bool = None,
-        markup: bool = None,
-        highlight: bool = None,
+        sep: str = " ",
+        end: str = "\n",
+        style: Optional[Union[str, Style]] = None,
+        justify: Optional[JustifyMethod] = None,
+        emoji: Optional[bool] = None,
+        markup: Optional[bool] = None,
+        highlight: Optional[bool] = None,
         log_locals: bool = False,
-        _stack_offset=1,
+        _stack_offset: int = 1,
     ) -> None:
         """Log rich content to the terminal.
 
         Args:
             objects (positional args): Objects to log to the terminal.
             sep (str, optional): String to write between print data. Defaults to " ".
-            end (str, optional): String to write at end of print data. Defaults to "\\n".
+            end (str, optional): String to write at end of print data. Defaults to "\\\\n".
             style (Union[str, Style], optional): A style to apply to output. Defaults to None.
             justify (str, optional): One of "left", "right", "center", or "full". Defaults to ``None``.
             overflow (str, optional): Overflow method: "crop", "fold", or "ellipsis". Defaults to None.
@@ -1283,8 +1851,10 @@ class Console:
             _stack_offset (int, optional): Offset of caller from end of call stack. Defaults to 1.
         """
         if not objects:
-            self.line()
-            return
+            objects = (NewLine(),)
+
+        render_hooks = self._render_hooks[:]
+
         with self:
             renderables = self._collect_renderables(
                 objects,
@@ -1298,18 +1868,13 @@ class Console:
             if style is not None:
                 renderables = [Styled(renderable, style) for renderable in renderables]
 
-            caller = inspect.stack()[_stack_offset]
-            link_path = (
-                None
-                if caller.filename.startswith("<")
-                else os.path.abspath(caller.filename)
-            )
-            path = caller.filename.rpartition(os.sep)[-1]
-            line_no = caller.lineno
+            filename, line_no, locals = self._caller_frame_info(_stack_offset)
+            link_path = None if filename.startswith("<") else os.path.abspath(filename)
+            path = filename.rpartition(os.sep)[-1]
             if log_locals:
                 locals_map = {
                     key: value
-                    for key, value in caller.frame.f_locals.items()
+                    for key, value in locals.items()
                     if not key.startswith("__")
                 }
                 renderables.append(render_scope(locals_map, title="[i]locals"))
@@ -1324,7 +1889,7 @@ class Console:
                     link_path=link_path,
                 )
             ]
-            for hook in self._render_hooks:
+            for hook in render_hooks:
                 renderables = hook.process_renderables(renderables)
             new_segments: List[Segment] = []
             extend = new_segments.extend
@@ -1340,12 +1905,15 @@ class Console:
 
     def _check_buffer(self) -> None:
         """Check if the buffer may be rendered."""
+        if self.quiet:
+            del self._buffer[:]
+            return
         with self._lock:
             if self._buffer_index == 0:
                 if self.is_jupyter:  # pragma: no cover
                     from .jupyter import display
 
-                    display(self._buffer)
+                    display(self._buffer, self._render_buffer(self._buffer[:]))
                     del self._buffer[:]
                 else:
                     text = self._render_buffer(self._buffer[:])
@@ -1374,7 +1942,9 @@ class Console:
             with self._record_buffer_lock:
                 self._record_buffer.extend(buffer)
         not_terminal = not self.is_terminal
-        for text, style, is_control in buffer:
+        if self.no_color and color_system:
+            buffer = Segment.remove_color(buffer)
+        for text, style, control in buffer:
             if style:
                 append(
                     style.render(
@@ -1383,7 +1953,7 @@ class Console:
                         legacy_windows=legacy_windows,
                     )
                 )
-            elif not (not_terminal and is_control):
+            elif not (not_terminal and control):
                 append(text)
 
         rendered = "".join(output)
@@ -1396,9 +1966,11 @@ class Console:
         markup: bool = True,
         emoji: bool = True,
         password: bool = False,
-        stream: TextIO = None,
+        stream: Optional[TextIO] = None,
     ) -> str:
         """Displays a prompt and waits for input from the user. The prompt may contain color / style.
+
+        It works in the same way as Python's builtin :func:`input` function and provides elaborate line editing and history features if Python's builtin :mod:`readline` module is previously loaded.
 
         Args:
             prompt (Union[str, Text]): Text to render in the prompt.
@@ -1455,7 +2027,7 @@ class Console:
                 text = "".join(
                     segment.text
                     for segment in self._record_buffer
-                    if not segment.is_control
+                    if not segment.control
                 )
             if clear:
                 del self._record_buffer[:]
@@ -1478,9 +2050,9 @@ class Console:
     def export_html(
         self,
         *,
-        theme: TerminalTheme = None,
+        theme: Optional[TerminalTheme] = None,
         clear: bool = True,
-        code_format: str = None,
+        code_format: Optional[str] = None,
         inline_styles: bool = False,
     ) -> str:
         """Generate HTML from console contents (requires record=True argument in constructor).
@@ -1488,8 +2060,8 @@ class Console:
         Args:
             theme (TerminalTheme, optional): TerminalTheme object containing console colors.
             clear (bool, optional): Clear record buffer after exporting. Defaults to ``True``.
-            code_format (str, optional): Format string to render HTML, should contain {foreground}
-                {background} and {code}.
+            code_format (str, optional): Format string to render HTML. In addition to '{foreground}',
+                '{background}', and '{code}', should contain '{stylesheet}' if inline_styles is ``False``.
             inline_styles (bool, optional): If ``True`` styles will be inlined in to spans, which makes files
                 larger but easier to cut and paste markup. If ``False``, styles will be embedded in a style tag.
                 Defaults to False.
@@ -1505,10 +2077,6 @@ class Console:
         _theme = theme or DEFAULT_TERMINAL_THEME
         stylesheet = ""
 
-        def escape(text: str) -> str:
-            """Escape html."""
-            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
         render_code_format = CONSOLE_HTML_FORMAT if code_format is None else code_format
 
         with self._record_buffer_lock:
@@ -1519,9 +2087,9 @@ class Console:
                     text = escape(text)
                     if style:
                         rule = style.get_html_style(_theme)
-                        text = f'<span style="{rule}">{text}</span>' if rule else text
                         if style.link:
                             text = f'<a href="{style.link}">{text}</a>'
+                        text = f'<span style="{rule}">{text}</span>' if rule else text
                     append(text)
             else:
                 styles: Dict[str, int] = {}
@@ -1531,11 +2099,11 @@ class Console:
                     text = escape(text)
                     if style:
                         rule = style.get_html_style(_theme)
-                        if rule:
-                            style_number = styles.setdefault(rule, len(styles) + 1)
-                            text = f'<span class="r{style_number}">{text}</span>'
+                        style_number = styles.setdefault(rule, len(styles) + 1)
                         if style.link:
-                            text = f'<a href="{style.link}">{text}</a>'
+                            text = f'<a class="r{style_number}" href="{style.link}">{text}</a>'
+                        else:
+                            text = f'<span class="r{style_number}">{text}</span>'
                     append(text)
                 stylesheet_rules: List[str] = []
                 stylesheet_append = stylesheet_rules.append
@@ -1558,9 +2126,9 @@ class Console:
         self,
         path: str,
         *,
-        theme: TerminalTheme = None,
+        theme: Optional[TerminalTheme] = None,
         clear: bool = True,
-        code_format=CONSOLE_HTML_FORMAT,
+        code_format: str = CONSOLE_HTML_FORMAT,
         inline_styles: bool = False,
     ) -> None:
         """Generate HTML from console contents and write to a file (requires record=True argument in constructor).
@@ -1569,8 +2137,8 @@ class Console:
             path (str): Path to write html file.
             theme (TerminalTheme, optional): TerminalTheme object containing console colors.
             clear (bool, optional): Clear record buffer after exporting. Defaults to ``True``.
-            code_format (str, optional): Format string to render HTML, should contain {foreground}
-                {background} and {code}.
+            code_format (str, optional): Format string to render HTML. In addition to '{foreground}',
+                '{background}', and '{code}', should contain '{stylesheet}' if inline_styles is ``False``.
             inline_styles (bool, optional): If ``True`` styles will be inlined in to spans, which makes files
                 larger but easier to cut and paste markup. If ``False``, styles will be embedded in a style tag.
                 Defaults to False.

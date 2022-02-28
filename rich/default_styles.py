@@ -40,12 +40,15 @@ DEFAULT_STYLES: Dict[str, Style] = {
     "inspect.attr.dunder": Style(color="yellow", italic=True, dim=True),
     "inspect.callable": Style(bold=True, color="red"),
     "inspect.def": Style(italic=True, color="bright_cyan"),
+    "inspect.class": Style(italic=True, color="bright_cyan"),
     "inspect.error": Style(bold=True, color="red"),
     "inspect.equals": Style(),
     "inspect.help": Style(color="cyan"),
     "inspect.doc": Style(dim=True),
     "inspect.value.border": Style(color="green"),
     "live.ellipsis": Style(bold=True, color="red"),
+    "layout.tree.row": Style(dim=False, color="red"),
+    "layout.tree.column": Style(dim=False, color="blue"),
     "logging.keyword": Style(bold=True, color="yellow"),
     "logging.level.notset": Style(dim=True),
     "logging.level.debug": Style(color="green"),
@@ -74,14 +77,24 @@ DEFAULT_STYLES: Dict[str, Style] = {
     "repr.attrib_name": Style(color="yellow", italic=False),
     "repr.attrib_equal": Style(bold=True),
     "repr.attrib_value": Style(color="magenta", italic=False),
-    "repr.number": Style(color="blue", bold=True, italic=False),
+    "repr.number": Style(color="cyan", bold=True, italic=False),
     "repr.bool_true": Style(color="bright_green", italic=True),
     "repr.bool_false": Style(color="bright_red", italic=True),
     "repr.none": Style(color="magenta", italic=True),
     "repr.url": Style(underline=True, color="bright_blue", italic=False, bold=False),
     "repr.uuid": Style(color="bright_yellow", bold=False),
+    "repr.call": Style(color="magenta", bold=True),
+    "repr.path": Style(color="magenta"),
+    "repr.filename": Style(color="bright_magenta"),
     "rule.line": Style(color="bright_green"),
     "rule.text": Style.null(),
+    "json.brace": Style(bold=True),
+    "json.bool_true": Style(color="bright_green", italic=True),
+    "json.bool_false": Style(color="bright_red", italic=True),
+    "json.null": Style(color="magenta", italic=True),
+    "json.number": Style(color="cyan", bold=True, italic=False),
+    "json.str": Style(color="green", italic=False, bold=False),
+    "json.key": Style(color="blue", bold=True),
     "prompt": Style.null(),
     "prompt.choices": Style(color="magenta", bold=True),
     "prompt.default": Style(color="cyan", bold=True),
@@ -92,14 +105,12 @@ DEFAULT_STYLES: Dict[str, Style] = {
     "scope.key": Style(color="yellow", italic=True),
     "scope.key.special": Style(color="yellow", italic=True, dim=True),
     "scope.equals": Style(color="red"),
-    "repr.path": Style(color="magenta"),
-    "repr.filename": Style(color="bright_magenta"),
     "table.header": Style(bold=True),
     "table.footer": Style(bold=True),
     "table.cell": Style.null(),
     "table.title": Style(italic=True),
     "table.caption": Style(italic=True, dim=True),
-    "traceback.error": Style(dim=True, color="red", bold=True),
+    "traceback.error": Style(color="red", italic=True),
     "traceback.border.syntax_error": Style(color="bright_red"),
     "traceback.border": Style(color="red"),
     "traceback.text": Style.null(),
@@ -121,9 +132,8 @@ DEFAULT_STYLES: Dict[str, Style] = {
     "progress.data.speed": Style(color="red"),
     "progress.spinner": Style(color="green"),
     "status.spinner": Style(color="green"),
-}
-
-MARKDOWN_STYLES = {
+    "tree": Style(),
+    "tree.line": Style(),
     "markdown.paragraph": Style(),
     "markdown.text": Style(),
     "markdown.emph": Style(italic=True),
@@ -149,4 +159,25 @@ MARKDOWN_STYLES = {
 }
 
 
-DEFAULT_STYLES.update(MARKDOWN_STYLES)
+if __name__ == "__main__":  # pragma: no cover
+    import argparse
+    import io
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.text import Text
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--html", action="store_true", help="Export as HTML table")
+    args = parser.parse_args()
+    html: bool = args.html
+    console = Console(record=True, width=70, file=io.StringIO()) if html else Console()
+
+    table = Table("Name", "Styling")
+
+    for style_name, style in DEFAULT_STYLES.items():
+        table.add_row(Text(style_name, style=style), str(style))
+
+    console.print(table)
+    if html:
+        print(console.export_html(inline_styles=True))

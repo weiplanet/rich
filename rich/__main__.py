@@ -4,7 +4,7 @@ from time import process_time
 
 from rich import box
 from rich.color import Color
-from rich.console import Console, ConsoleOptions, RenderGroup, RenderResult
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.markdown import Markdown
 from rich.measure import Measurement
 from rich.pretty import Pretty
@@ -30,8 +30,10 @@ class ColorBox:
                 yield Segment("▄", Style(color=color, bgcolor=bgcolor))
             yield Segment.line()
 
-    def __rich_measure__(self, console: "Console", max_width: int) -> Measurement:
-        return Measurement(1, max_width)
+    def __rich_measure__(
+        self, console: "Console", options: ConsoleOptions
+    ) -> Measurement:
+        return Measurement(1, options.max_width)
 
 
 def make_test_card() -> Table:
@@ -78,7 +80,7 @@ def make_test_card() -> Table:
     )
     table.add_row(
         "Text",
-        RenderGroup(
+        Group(
             Text.from_markup(
                 """Word wrap text. Justify [green]left[/], [yellow]center[/], [blue]right[/] or [red]full[/].\n"""
             ),
@@ -86,7 +88,7 @@ def make_test_card() -> Table:
         ),
     )
 
-    def comparison(renderable1, renderable2) -> Table:
+    def comparison(renderable1: RenderableType, renderable2: RenderableType) -> Table:
         table = Table(show_header=False, pad_edge=False, box=None, expand=True)
         table.add_column("1", ratio=1)
         table.add_column("2", ratio=1)
@@ -99,7 +101,7 @@ def make_test_card() -> Table:
     )
 
     markup_example = (
-        "[bold magenta]Rich[/] supports a simple [i]bbcode[/i] like [b]markup[/b] for [yellow]color[/], [underline]style[/], and emoji! "
+        "[bold magenta]Rich[/] supports a simple [i]bbcode[/i]-like [b]markup[/b] for [yellow]color[/], [underline]style[/], and emoji! "
         ":+1: :apple: :ant: :bear: :baguette_bread: :bus: "
     )
     table.add_row("Markup", markup_example)
@@ -169,9 +171,9 @@ def iter_last(values: Iterable[T]) -> Iterable[Tuple[bool, T]]:
         "foo": [
             3.1427,
             (
-                "Paul Atriedies",
+                "Paul Atreides",
                 "Vladimir Harkonnen",
-                "Thufir Haway",
+                "Thufir Hawat",
             ),
         ],
         "atomic": (False, True, None),
@@ -187,7 +189,7 @@ def iter_last(values: Iterable[T]) -> Iterable[Tuple[bool, T]]:
     markdown_example = """\
 # Markdown
 
-Supports much of the *markdown*, __syntax__!
+Supports much of the *markdown* __syntax__!
 
 - Headers
 - Basic formatting: **bold**, *italic*, `code`
@@ -214,7 +216,10 @@ if __name__ == "__main__":  # pragma: no cover
     test_card = make_test_card()
 
     # Print once to warm cache
+    start = process_time()
     console.print(test_card)
+    pre_cache_taken = round((process_time() - start) * 1000.0, 1)
+
     console.file = io.StringIO()
 
     start = process_time()
@@ -223,7 +228,54 @@ if __name__ == "__main__":  # pragma: no cover
 
     text = console.file.getvalue()
     # https://bugs.python.org/issue37871
-    for line in text.splitlines():
-        print(line)
+    for line in text.splitlines(True):
+        print(line, end="")
 
-    print(f"rendered in {taken}ms")
+    print(f"rendered in {pre_cache_taken}ms (cold cache)")
+    print(f"rendered in {taken}ms (warm cache)")
+
+    from rich.panel import Panel
+
+    console = Console()
+
+    sponsor_message = Table.grid(padding=1)
+    sponsor_message.add_column(style="green", justify="right")
+    sponsor_message.add_column(no_wrap=True)
+
+    sponsor_message.add_row(
+        "Textualize",
+        "[u blue link=https://github.com/textualize]https://github.com/textualize",
+    )
+    sponsor_message.add_row(
+        "Buy devs a :coffee:",
+        "[u blue link=https://ko-fi.com/textualize]https://ko-fi.com/textualize",
+    )
+    sponsor_message.add_row(
+        "Twitter",
+        "[u blue link=https://twitter.com/willmcgugan]https://twitter.com/willmcgugan",
+    )
+
+    intro_message = Text.from_markup(
+        """\
+We hope you enjoy using Rich!
+
+Rich is maintained with [red]:heart:[/] by [link=https://www.textualize.io]Textualize.io[/]
+
+- Will McGugan"""
+    )
+
+    message = Table.grid(padding=2)
+    message.add_column()
+    message.add_column(no_wrap=True)
+    message.add_row(intro_message, sponsor_message)
+
+    console.print(
+        Panel.fit(
+            message,
+            box=box.ROUNDED,
+            padding=(1, 2),
+            title="[b red]Thanks for trying out Rich!",
+            border_style="bright_blue",
+        ),
+        justify="center",
+    )

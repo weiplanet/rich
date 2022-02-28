@@ -1,7 +1,7 @@
 Introduction
 ============
 
-Rich is a Python library for writing *rich* text (with color and style) to the terminal, and for displaying advanced content such as tables, markdown, and syntax highlighted code. 
+Rich is a Python library for writing *rich* text (with color and style) to the terminal, and for displaying advanced content such as tables, markdown, and syntax highlighted code.
 
 Use Rich to make your command line applications visually appealing and present data in a more readable way. Rich can also be a useful debugging aid by pretty printing and syntax highlighting data structures.
 
@@ -10,7 +10,7 @@ Requirements
 
 Rich works with OSX, Linux and Windows.
 
-On Windows both the (ancient) cmd.exe terminal is supported and the new `Windows Terminal <https://github.com/microsoft/terminal/releases>`_. The later has much improved support for color and style.
+On Windows both the (ancient) cmd.exe terminal is supported and the new `Windows Terminal <https://github.com/microsoft/terminal/releases>`_. The latter has much improved support for color and style.
 
 Rich requires Python 3.6.1 and above. Note that Python 3.6.0 is *not* supported due to lack of support for methods on NamedTuples.
 
@@ -20,7 +20,7 @@ Rich requires Python 3.6.1 and above. Note that Python 3.6.0 is *not* supported 
 Installation
 ------------
 
-You can install Rich with from PyPi with `pip` or your favorite package manager::
+You can install Rich from PyPI with `pip` or your favorite package manager::
 
     pip install rich
 
@@ -38,7 +38,7 @@ The quickest way to get up and running with Rich is to import the alternative ``
 
     from rich import print
 
-You can then print strings or objects to the terminal in the usual way. Rich will do some basic syntax highlighting and format data structures to make them easier to read.
+You can then print strings or objects to the terminal in the usual way. Rich will do some basic syntax :ref:`highlighting<highlighting>` and format data structures to make them easier to read.
 
 Strings may contain :ref:`console_markup` which can be used to insert color and styles in to the output.
 
@@ -50,7 +50,7 @@ This writes the following output to the terminal (including all the colors and s
 
 .. raw:: html
 
-    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><span style="color: #800000; font-style: italic">Hello</span> World!                                                 
+    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><span style="color: #800000; font-style: italic">Hello</span> World!
     <span style="font-weight: bold">{</span>
         <span style="color: #008000">'__annotations__'</span>: <span style="font-weight: bold">{}</span>,
         <span style="color: #008000">'__builtins__'</span>: <span style="font-weight: bold"><</span><span style="color: #ff00ff">module</span><span style="color: #000000"> </span><span style="color: #008000">'builtins'</span><span style="color: #000000"> </span><span style="color: #000000; font-weight: bold">(</span><span style="color: #000000">built-in</span><span style="color: #000000; font-weight: bold">)</span><span style="font-weight: bold">></span>,
@@ -63,19 +63,19 @@ This writes the following output to the terminal (including all the colors and s
     <span style="font-weight: bold">}</span> </pre>
 
 
-If you would rather not shadow Python's builtin print, you can import ``rich.print`` as ``rprint`` (for example)::
+If you would rather not shadow Python's built-in print, you can import ``rich.print`` as ``rprint`` (for example)::
 
     from rich import print as rprint
 
 Continue reading to learn about the more advanced features of Rich.
 
-Python in the REPL
-------------------
+Rich in the REPL
+----------------
 
 Rich may be installed in the REPL so that Python data structures are automatically pretty printed with syntax highlighting. Here's how::
 
     >>> from rich import pretty
-    >>> pretty.install() 
+    >>> pretty.install()
     >>> ["Rich and pretty", True]
 
 You can also use this feature to try out Rich *renderables*. Here's an example::
@@ -85,9 +85,18 @@ You can also use this feature to try out Rich *renderables*. Here's an example::
 
 Read on to learn more about Rich renderables.
 
+IPython Extension
+~~~~~~~~~~~~~~~~~
 
-Rich Inspector
---------------
+Rich also includes an IPython extension that will do this same pretty install + pretty tracebacks. Here's how to load it::
+
+    In [1]: %load_ext rich
+
+You can also have it load by default by adding `"rich"` to the ``c.InteractiveShellApp.extension`` variable in
+`IPython Configuration <https://ipython.readthedocs.io/en/stable/config/intro.html>`_.
+
+Rich Inspect
+------------
 
 Rich has an :meth:`~rich.inspect` function which can generate a report on any Python object. It is a fantastic debug aid, and a good example of the output that Rich can generate. Here is a simple example::
 

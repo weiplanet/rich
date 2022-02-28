@@ -1,11 +1,26 @@
-# Rich
+[![Supported Python Versions](https://img.shields.io/pypi/pyversions/rich/10.11.0)](https://pypi.org/project/rich/) [![PyPI version](https://badge.fury.io/py/rich.svg)](https://badge.fury.io/py/rich)
 
-[![PyPI version](https://badge.fury.io/py/rich.svg)](https://badge.fury.io/py/rich)
-[![codecov](https://codecov.io/gh/willmcgugan/rich/branch/master/graph/badge.svg)](https://codecov.io/gh/willmcgugan/rich)
+[![Downloads](https://pepy.tech/badge/rich/month)](https://pepy.tech/project/rich)
+[![codecov](https://img.shields.io/codecov/c/github/Textualize/rich?label=codecov&logo=codecov)](https://codecov.io/gh/willmcgugan/rich)
 [![Rich blog](https://img.shields.io/badge/blog-rich%20news-yellowgreen)](https://www.willmcgugan.com/tag/rich/)
 [![Twitter Follow](https://img.shields.io/twitter/follow/willmcgugan.svg?style=social)](https://twitter.com/willmcgugan)
 
-[中文 readme](https://github.com/willmcgugan/rich/blob/master/README.cn.md) • [lengua española readme](https://github.com/willmcgugan/rich/blob/master/README.es.md)
+![Logo](https://github.com/willmcgugan/rich/raw/master/imgs/logo.svg)
+
+[English readme](https://github.com/willmcgugan/rich/blob/master/README.md)
+ • [简体中文 readme](https://github.com/willmcgugan/rich/blob/master/README.cn.md)
+ • [正體中文 readme](https://github.com/willmcgugan/rich/blob/master/README.zh-tw.md)
+ • [Lengua española readme](https://github.com/willmcgugan/rich/blob/master/README.es.md)
+ • [Deutsche readme](https://github.com/willmcgugan/rich/blob/master/README.de.md)
+ • [Läs på svenska](https://github.com/willmcgugan/rich/blob/master/README.sv.md)
+ • [日本語 readme](https://github.com/willmcgugan/rich/blob/master/README.ja.md)
+ • [한국어 readme](https://github.com/willmcgugan/rich/blob/master/README.kr.md)
+ • [Français readme](https://github.com/willmcgugan/rich/blob/master/README.fr.md)
+ • [Schwizerdütsch readme](https://github.com/willmcgugan/rich/blob/master/README.de-ch.md)
+ • [हिन्दी readme](https://github.com/willmcgugan/rich/blob/master/README.hi.md)
+ • [Português brasileiro readme](https://github.com/willmcgugan/rich/blob/master/README.pt-br.md)
+ • [Italian readme](https://github.com/willmcgugan/rich/blob/master/README.it.md)
+ • [Русский readme](https://github.com/willmcgugan/rich/blob/master/README.ru.md)
 
 Rich is a Python library for _rich_ text and beautiful formatting in the terminal.
 
@@ -19,25 +34,25 @@ See what [people are saying about Rich](https://www.willmcgugan.com/blog/pages/p
 
 ## Compatibility
 
-Rich works with Linux, OSX, and Windows. True color / emoji works with new Windows Terminal, classic terminal is limited to 8 colors. Rich requires Python 3.6.1 or later.
+Rich works with Linux, OSX, and Windows. True color / emoji works with new Windows Terminal, classic terminal is limited to 16 colors. Rich requires Python 3.6.1 or later.
 
 Rich works with [Jupyter notebooks](https://jupyter.org/) with no additional configuration required.
 
 ## Installing
 
-Install with `pip` or your favorite PyPi package manager.
+Install with `pip` or your favorite PyPI package manager.
 
-```
-pip install rich
+```sh
+python -m pip install rich
 ```
 
 Run the following to test Rich output on your terminal:
 
-```
+```sh
 python -m rich
 ```
 
-## Rich print function
+## Rich Print
 
 To effortlessly add rich output to your application, you can import the [rich print](https://rich.readthedocs.io/en/latest/introduction.html#quick-start) method, which has the same signature as the builtin Python function. Try this:
 
@@ -59,15 +74,6 @@ Rich can be installed in the Python REPL, so that any data structures will be pr
 ```
 
 ![REPL](https://github.com/willmcgugan/rich/raw/master/imgs/repl.png)
-
-## Rich Inspect
-
-Rich has an [inspect](https://rich.readthedocs.io/en/latest/reference/init.html?highlight=inspect#rich.inspect) function which can produce a report on any Python object, such as class, instance, or builtin.
-
-```python
->>> from rich import inspect
->>> inspect(str, methods=True)
-```
 
 ## Using the Console
 
@@ -105,7 +111,30 @@ console.print("Where there is a [bold cyan]Will[/bold cyan] there [u]is[/u] a [i
 
 ![Console Markup](https://github.com/willmcgugan/rich/raw/master/imgs/where_there_is_a_will.png)
 
-### Console logging
+You can use a Console object to generate sophisticated output with minimal effort. See the [Console API](https://rich.readthedocs.io/en/latest/console.html) docs for details.
+
+## Rich Inspect
+
+Rich has an [inspect](https://rich.readthedocs.io/en/latest/reference/init.html?highlight=inspect#rich.inspect) function which can produce a report on any Python object, such as class, instance, or builtin.
+
+```python
+>>> my_list = ["foo", "bar"]
+>>> from rich import inspect
+>>> inspect(my_list, methods=True)
+```
+
+![Log](https://github.com/willmcgugan/rich/raw/master/imgs/inspect.png)
+
+See the [inspect docs](https://rich.readthedocs.io/en/latest/reference/init.html#rich.inspect) for details.
+
+# Rich Library
+
+Rich contains a number of builtin _renderables_ you can use to create elegant output in your CLI and help you debug your code.
+
+Click the following headings for details:
+
+<details>
+<summary>Log</summary>
 
 The Console object has a `log()` method which has a similar interface to `print()`, but also renders a column for the current time and the file and line which made the call. By default Rich will do syntax highlighting for Python structures and for repr strings. If you log a collection (i.e. a dict or a list) Rich will pretty print it so that it fits in the available space. Here's an example of some of these features.
 
@@ -140,13 +169,18 @@ Note the `log_locals` argument, which outputs a table containing the local varia
 
 The log method could be used for logging to the terminal for long running applications such as servers, but is also a very nice debugging aid.
 
-### Logging Handler
+</details>
+<details>
+<summary>Logging Handler</summary>
 
 You can also use the builtin [Handler class](https://rich.readthedocs.io/en/latest/logging.html) to format and colorize output from Python's logging module. Here's an example of the output:
 
 ![Logging](https://github.com/willmcgugan/rich/raw/master/imgs/logging.png)
 
-## Emoji
+</details>
+
+<details>
+<summary>Emoji</summary>
 
 To insert an emoji in to console output place the name between two colons. Here's an example:
 
@@ -157,7 +191,10 @@ To insert an emoji in to console output place the name between two colons. Here'
 
 Please use this feature wisely.
 
-## Tables
+</details>
+
+<details>
+<summary>Tables</summary>
 
 Rich can render flexible [tables](https://rich.readthedocs.io/en/latest/tables.html) with unicode box characters. There is a large variety of formatting options for borders, styles, cell alignment etc.
 
@@ -179,7 +216,7 @@ table.add_column("Title")
 table.add_column("Production Budget", justify="right")
 table.add_column("Box Office", justify="right")
 table.add_row(
-    "Dev 20, 2019", "Star Wars: The Rise of Skywalker", "$275,000,000", "$375,126,118"
+    "Dec 20, 2019", "Star Wars: The Rise of Skywalker", "$275,000,000", "$375,126,118"
 )
 table.add_row(
     "May 25, 2018",
@@ -207,7 +244,10 @@ The `Table` class is smart enough to resize columns to fit the available width o
 
 ![table2](https://github.com/willmcgugan/rich/raw/master/imgs/table2.png)
 
-## Progress Bars
+</details>
+
+<details>
+<summary>Progress Bars</summary>
 
 Rich can render multiple flicker-free [progress](https://rich.readthedocs.io/en/latest/progress.html) bars to track long-running tasks.
 
@@ -230,7 +270,10 @@ The columns may be configured to show any details you want. Built-in columns inc
 
 To try this out yourself, see [examples/downloader.py](https://github.com/willmcgugan/rich/blob/master/examples/downloader.py) which can download multiple URLs simultaneously while displaying progress.
 
-## Status
+</details>
+
+<details>
+<summary>Status</summary>
 
 For situations where it is hard to calculate progress, you can use the [status](https://rich.readthedocs.io/en/latest/reference/console.html#rich.console.Console.status) method which will display a 'spinner' animation and message. The animation won't prevent you from using the console as normal. Here's an example:
 
@@ -258,11 +301,33 @@ The spinner animations were borrowed from [cli-spinners](https://www.npmjs.com/p
 python -m rich.spinner
 ```
 
-The above command generate the following output in the terminal:
+The above command generates the following output in the terminal:
 
 ![spinners](https://github.com/willmcgugan/rich/raw/master/imgs/spinners.gif)
 
-## Columns
+</details>
+
+<details>
+<summary>Tree</summary>
+
+Rich can render a [tree](https://rich.readthedocs.io/en/latest/tree.html) with guide lines. A tree is ideal for displaying a file structure, or any other hierarchical data.
+
+The labels of the tree can be simple text or anything else Rich can render. Run the following for a demonstration:
+
+```
+python -m rich.tree
+```
+
+This generates the following output:
+
+![markdown](https://github.com/willmcgugan/rich/raw/master/imgs/tree.png)
+
+See the [tree.py](https://github.com/willmcgugan/rich/blob/master/examples/tree.py) example for a script that displays a tree view of any directory, similar to the linux `tree` command.
+
+</details>
+
+<details>
+<summary>Columns</summary>
 
 Rich can render content in neat [columns](https://rich.readthedocs.io/en/latest/columns.html) with equal or optimal width. Here's a very basic clone of the (MacOS / Linux) `ls` command which displays a directory listing in columns:
 
@@ -281,7 +346,10 @@ The following screenshot is the output from the [columns example](https://github
 
 ![columns](https://github.com/willmcgugan/rich/raw/master/imgs/columns.png)
 
-## Markdown
+</details>
+
+<details>
+<summary>Markdown</summary>
 
 Rich can render [markdown](https://rich.readthedocs.io/en/latest/markdown.html) and does a reasonable job of translating the formatting to the terminal.
 
@@ -301,7 +369,10 @@ This will produce output something like the following:
 
 ![markdown](https://github.com/willmcgugan/rich/raw/master/imgs/markdown.png)
 
-## Syntax Highlighting
+</details>
+
+<details>
+<summary>Syntax Highlighting</summary>
 
 Rich uses the [pygments](https://pygments.org/) library to implement [syntax highlighting](https://rich.readthedocs.io/en/latest/syntax.html). Usage is similar to rendering markdown; construct a `Syntax` object and print it to the console. Here's an example:
 
@@ -333,7 +404,10 @@ This will produce the following output:
 
 ![syntax](https://github.com/willmcgugan/rich/raw/master/imgs/syntax.png)
 
-## Tracebacks
+</details>
+
+<details>
+<summary>Tracebacks</summary>
 
 Rich can render [beautiful tracebacks](https://rich.readthedocs.io/en/latest/traceback.html) which are easier to read and show more code than standard Python tracebacks. You can set Rich as the default traceback handler so all uncaught exceptions will be rendered by Rich.
 
@@ -341,7 +415,20 @@ Here's what it looks like on OSX (similar on Linux):
 
 ![traceback](https://github.com/willmcgugan/rich/raw/master/imgs/traceback.png)
 
-## Project using Rich
+</details>
+
+All Rich renderables make use of the [Console Protocol](https://rich.readthedocs.io/en/latest/protocol.html), which you can also use to implement your own Rich content.
+
+# Rich CLI
+
+
+See also [Rich CLI](https://github.com/textualize/rich-cli) for a command line application powered by Rich. Syntax highlight code, render markdown, display CSVs in tables, and more, directly from the command prompt.
+
+
+![Rich CLI](https://raw.githubusercontent.com/Textualize/rich-cli/main/imgs/rich-cli-splash.jpg)
+
+
+# Projects using Rich
 
 Here are a few projects using Rich:
 
@@ -370,3 +457,5 @@ Here are a few projects using Rich:
 - [ansible/ansible-lint](https://github.com/ansible/ansible-lint) Ansible-lint checks playbooks for practices and behaviour that could potentially be improved
 - [ansible-community/molecule](https://github.com/ansible-community/molecule) Ansible Molecule testing framework
 - +[Many more](https://github.com/willmcgugan/rich/network/dependents)!
+
+<!-- This is a test, no need to translate -->

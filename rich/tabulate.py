@@ -1,5 +1,6 @@
 from collections.abc import Mapping
-from typing import Optional
+from typing import Any, Optional
+import warnings
 
 from rich.console import JustifyMethod
 
@@ -10,9 +11,9 @@ from .table import Table
 
 
 def tabulate_mapping(
-    mapping: Mapping,
-    title: str = None,
-    caption: str = None,
+    mapping: "Mapping[Any, Any]",
+    title: Optional[str] = None,
+    caption: Optional[str] = None,
     title_justify: Optional[JustifyMethod] = None,
     caption_justify: Optional[JustifyMethod] = None,
 ) -> Table:
@@ -28,6 +29,7 @@ def tabulate_mapping(
     Returns:
         Table: A table instance which may be rendered by the Console.
     """
+    warnings.warn("tabulate_mapping will be deprecated in Rich v11", DeprecationWarning)
     table = Table(
         show_header=False,
         title=title,
@@ -47,29 +49,3 @@ def tabulate_mapping(
             Pretty(key, highlighter=highlighter), Pretty(value, highlighter=highlighter)
         )
     return table
-
-
-if __name__ == "__main__":  # pragma: no cover
-    from rich import print
-
-    def test(foo, bar, tjustify=None, cjustify=None):
-        list_of_things = [1, 2, 3, None, 4, True, False, "Hello World"]
-        dict_of_things = {
-            "version": "1.1",
-            "method": "confirmFruitPurchase",
-            "params": [["apple", "orange", "mangoes", "pomelo"], 1.123],
-            "id": "194521489",
-        }
-        print(
-            tabulate_mapping(
-                locals(),
-                title="locals()",
-                title_justify=tjustify,
-                caption="__main__.test",
-                caption_justify=cjustify,
-            )
-        )
-
-    print()
-    test(20.3423, 3.1427, cjustify="right")
-    print()

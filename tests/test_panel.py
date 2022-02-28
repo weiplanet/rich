@@ -12,6 +12,7 @@ tests = [
     Panel("Hello, World", width=8, padding=0),
     Panel(Panel("Hello, World", padding=0), padding=0),
     Panel("Hello, World", title="FOO", padding=0),
+    Panel("Hello, World", subtitle="FOO", padding=0),
 ]
 
 expected = [
@@ -21,6 +22,7 @@ expected = [
     "╭──────╮\n│Hello,│\n│World │\n╰──────╯\n",
     "╭────────────────────────────────────────────────╮\n│╭──────────────────────────────────────────────╮│\n││Hello, World                                  ││\n│╰──────────────────────────────────────────────╯│\n╰────────────────────────────────────────────────╯\n",
     "╭───────────────────── FOO ──────────────────────╮\n│Hello, World                                    │\n╰────────────────────────────────────────────────╯\n",
+    "╭────────────────────────────────────────────────╮\n│Hello, World                                    │\n╰───────────────────── FOO ──────────────────────╯\n",
 ]
 
 
@@ -38,7 +40,7 @@ def test_render_panel(panel, expected):
 def test_console_width():
     console = Console(file=io.StringIO(), width=50, legacy_windows=False)
     panel = Panel("Hello, World", expand=False)
-    min_width, max_width = panel.__rich_measure__(console, 50)
+    min_width, max_width = panel.__rich_measure__(console, console.options)
     assert min_width == 16
     assert max_width == 16
 
@@ -46,7 +48,7 @@ def test_console_width():
 def test_fixed_width():
     console = Console(file=io.StringIO(), width=50, legacy_windows=False)
     panel = Panel("Hello World", width=20)
-    min_width, max_width = panel.__rich_measure__(console, 100)
+    min_width, max_width = panel.__rich_measure__(console, console.options)
     assert min_width == 20
     assert max_width == 20
 

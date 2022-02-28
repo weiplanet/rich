@@ -4,7 +4,8 @@ import sys
 import pytest
 
 from rich.console import Console
-from rich.traceback import install, Traceback
+from rich.theme import Theme
+from rich.traceback import Traceback, install
 
 # from .render import render
 
@@ -81,12 +82,36 @@ def test_print_exception():
     assert "ZeroDivisionError" in exception_text
 
 
+def test_print_exception_no_msg():
+    console = Console(width=100, file=io.StringIO())
+    try:
+        raise RuntimeError
+    except Exception:
+        console.print_exception()
+    exception_text = console.file.getvalue()
+    assert "RuntimeError" in exception_text
+    assert "RuntimeError:" not in exception_text
+
+
+def test_print_exception_locals():
+    console = Console(width=100, file=io.StringIO())
+    try:
+        1 / 0
+    except Exception:
+        console.print_exception(show_locals=True)
+    exception_text = console.file.getvalue()
+    print(exception_text)
+    assert "ZeroDivisionError" in exception_text
+    assert "locals" in exception_text
+    assert "console = <console width=100 None>" in exception_text
+
+
 def test_syntax_error():
     console = Console(width=100, file=io.StringIO())
     try:
         # raises SyntaxError: unexpected EOF while parsing
-        eval("(2 + 2")
-    except Exception:
+        eval("(2+2")
+    except SyntaxError:
         console.print_exception()
     exception_text = console.file.getvalue()
     assert "SyntaxError" in exception_text
@@ -164,6 +189,80 @@ def test_filename_not_a_file():
         console.print_exception()
     exception_text = console.file.getvalue()
     assert "string" in exception_text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="renders different on windows")
+def test_traceback_console_theme_applies():
+    """
+    Ensure that themes supplied via Console init work on Tracebacks.
+    Regression test for https://github.com/Textualize/rich/issues/1786
+    """
+    r, g, b = 123, 234, 123
+    console = Console(
+        force_terminal=True,
+        _environ={"COLORTERM": "truecolor"},
+        theme=Theme({"traceback.title": f"rgb({r},{g},{b})"}),
+    )
+
+    console.begin_capture()
+    try:
+        1 / 0
+    except Exception:
+        console.print_exception()
+
+    result = console.end_capture()
+
+    assert f"\\x1b[38;2;{r};{g};{b}mTraceback \\x1b[0m" in repr(result)
+
+
+def test_broken_str():
+    class BrokenStr(Exception):
+        def __str__(self):
+            1 / 0
+
+    console = Console(width=100, file=io.StringIO())
+    try:
+        raise BrokenStr()
+    except Exception:
+        console.print_exception()
+    result = console.file.getvalue()
+    print(result)
+    assert "<exception str() failed>" in result
+
+
+def test_guess_lexer():
+    assert Traceback._guess_lexer("foo.py", "code") == "python"
+    code_python = "#! usr/bin/env python\nimport this"
+    assert Traceback._guess_lexer("foo", code_python) == "python"
+    assert Traceback._guess_lexer("foo", "foo\nbnar") == "text"
+
+
+def test_recursive():
+    def foo(n):
+        return bar(n)
+
+    def bar(n):
+        return foo(n)
+
+    console = Console(width=100, file=io.StringIO())
+    try:
+        foo(1)
+    except Exception:
+        console.print_exception(max_frames=6)
+    result = console.file.getvalue()
+    print(result)
+    assert "frames hidden" in result
+    assert result.count("in foo") < 4
+
+
+def test_suppress():
+    try:
+        1 / 0
+    except Exception:
+        traceback = Traceback(suppress=[pytest, "foo"])
+        assert len(traceback.suppress) == 2
+        assert "pytest" in traceback.suppress[0]
+        assert "foo" in traceback.suppress[1]
 
 
 if __name__ == "__main__":  # pragma: no cover

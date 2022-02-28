@@ -1,10 +1,20 @@
+import sys
 from typing import Optional, Tuple
 
+if sys.version_info >= (3, 8):
+    from typing import Literal
+else:
+    from typing_extensions import Literal  # pragma: no cover
+
+
+from ._loop import loop_last
 from .console import Console, ConsoleOptions, RenderableType, RenderResult
 from .control import Control
-from .segment import Segment
+from .segment import ControlType, Segment
 from .style import StyleType
-from ._loop import loop_last
+from .text import Text
+
+VerticalOverflowMethod = Literal["crop", "ellipsis", "visible"]
 
 
 class LiveRender:
@@ -15,9 +25,15 @@ class LiveRender:
         style (StyleType, optional): An optional style to apply to the renderable. Defaults to "".
     """
 
-    def __init__(self, renderable: RenderableType, style: StyleType = "") -> None:
+    def __init__(
+        self,
+        renderable: RenderableType,
+        style: StyleType = "",
+        vertical_overflow: VerticalOverflowMethod = "ellipsis",
+    ) -> None:
         self.renderable = renderable
         self.style = style
+        self.vertical_overflow = vertical_overflow
         self._shape: Optional[Tuple[int, int]] = None
 
     def set_renderable(self, renderable: RenderableType) -> None:
@@ -36,8 +52,18 @@ class LiveRender:
         """
         if self._shape is not None:
             _, height = self._shape
-            return Control("\r\x1b[2K" + "\x1b[1A\x1b[2K" * (height - 1))
-        return Control("")
+            return Control(
+                ControlType.CARRIAGE_RETURN,
+                (ControlType.ERASE_IN_LINE, 2),
+                *(
+                    (
+                        (ControlType.CURSOR_UP, 1),
+                        (ControlType.ERASE_IN_LINE, 2),
+                    )
+                    * (height - 1)
+                )
+            )
+        return Control()
 
     def restore_cursor(self) -> Control:
         """Get control codes to clear the render and restore the cursor to its previous position.
@@ -47,29 +73,41 @@ class LiveRender:
         """
         if self._shape is not None:
             _, height = self._shape
-            return Control("\r" + "\x1b[1A\x1b[2K" * height)
-        return Control("")
+            return Control(
+                ControlType.CARRIAGE_RETURN,
+                *((ControlType.CURSOR_UP, 1), (ControlType.ERASE_IN_LINE, 2)) * height
+            )
+        return Control()
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        style = console.get_style(self.style)
-        lines = console.render_lines(self.renderable, options, style=style, pad=False)
-        _Segment = Segment
-        shape = _Segment.get_shape(lines)
-        if self._shape is None:
-            self._shape = shape
-        else:
-            width1, height1 = shape
-            width2, height2 = self._shape
-            self._shape = (
-                max(width1, min(options.max_width, width2)),
-                max(height1, height2),
-            )
 
-        width, height = self._shape
-        lines = _Segment.set_shape(lines, width, height)
+        renderable = self.renderable
+        style = console.get_style(self.style)
+        lines = console.render_lines(renderable, options, style=style, pad=False)
+        shape = Segment.get_shape(lines)
+
+        _, height = shape
+        if height > options.size.height:
+            if self.vertical_overflow == "crop":
+                lines = lines[: options.size.height]
+                shape = Segment.get_shape(lines)
+            elif self.vertical_overflow == "ellipsis":
+                lines = lines[: (options.size.height - 1)]
+                overflow_text = Text(
+                    "...",
+                    overflow="crop",
+                    justify="center",
+                    end="",
+                    style="live.ellipsis",
+                )
+                lines.append(list(console.render(overflow_text)))
+                shape = Segment.get_shape(lines)
+        self._shape = shape
+
+        new_line = Segment.line()
         for last, line in loop_last(lines):
-            yield from _Segment.make_control(line)
+            yield from line
             if not last:
-                yield _Segment.line(is_control=True)
+                yield new_line

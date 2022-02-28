@@ -1,3 +1,4 @@
+from rich.console import Console
 from rich.progress_bar import ProgressBar
 from rich.segment import Segment
 from rich.style import Style
@@ -39,8 +40,9 @@ def test_render():
 
 
 def test_measure():
+    console = Console(width=120)
     bar = ProgressBar()
-    measurement = bar.__rich_measure__(None, 120)
+    measurement = bar.__rich_measure__(console, console.options)
     assert measurement.minimum == 4
     assert measurement.maximum == 120
 
@@ -62,30 +64,30 @@ def test_pulse():
 def test_get_pulse_segments():
     bar = ProgressBar()
     segments = bar._get_pulse_segments(
-        Style.parse("red"), Style.parse("yellow"), "standard", False
+        Style.parse("red"), Style.parse("yellow"), None, False, False
     )
     print(repr(segments))
     expected = [
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("red"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
-        Segment("━", Style.parse("yellow"), False),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("red")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
+        Segment("━", Style.parse("yellow")),
     ]
     assert segments == expected
 

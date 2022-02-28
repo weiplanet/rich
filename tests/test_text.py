@@ -95,6 +95,16 @@ def test_from_markup():
     assert text._spans == [Span(7, 13, "bold")]
 
 
+def test_from_ansi():
+    text = Text.from_ansi("Hello, \033[1mWorld!\033[0m")
+    assert str(text) == "Hello, World!"
+    assert text._spans == [Span(7, 13, Style(bold=True))]
+
+    text = Text.from_ansi("Hello, \033[1m\nWorld!\033[0m")
+    assert str(text) == "Hello, \nWorld!"
+    assert text._spans == [Span(8, 14, Style(bold=True))]
+
+
 def test_copy():
     test = Text()
     test.append("Hello", "bold")
@@ -238,12 +248,13 @@ def test_console_width():
     test = Text("Hello World!\nfoobarbaz")
     assert test.__rich_measure__(console, 80) == Measurement(9, 12)
     assert Text(" " * 4).__rich_measure__(console, 80) == Measurement(4, 4)
+    assert Text(" \n  \n   ").__rich_measure__(console, 80) == Measurement(3, 3)
 
 
 def test_join():
     test = Text("bar").join([Text("foo", "red"), Text("baz", "blue")])
     assert str(test) == "foobarbaz"
-    assert test._spans == [Span(0, 3, "red"), Span(3, 6, ""), Span(6, 9, "blue")]
+    assert test._spans == [Span(0, 3, "red"), Span(6, 9, "blue")]
 
 
 def test_trim_spans():
@@ -304,6 +315,15 @@ def test_split():
     assert split[1] == line2
 
     assert list(Text("foo").split("\n")) == [Text("foo")]
+
+
+def test_split_spans():
+    test = Text.from_markup("[red]Hello\n[b]World")
+    lines = test.split("\n")
+    assert lines[0].plain == "Hello"
+    assert lines[1].plain == "World"
+    assert lines[0].spans == [Span(0, 5, "red")]
+    assert lines[1].spans == [Span(0, 5, "red"), Span(0, 5, "bold")]
 
 
 def test_divide():
@@ -532,6 +552,14 @@ def test_assemble():
     assert text._spans == [Span(3, 6, "bold")]
 
 
+def test_assemble_meta():
+    text = Text.assemble("foo", ("bar", "bold"), meta={"foo": "bar"})
+    assert str(text) == "foobar"
+    assert text._spans == [Span(3, 6, "bold"), Span(0, 6, Style(meta={"foo": "bar"}))]
+    console = Console()
+    assert text.get_style_at_offset(console, 0).meta == {"foo": "bar"}
+
+
 def test_styled():
     text = Text.styled("foo", "bold red")
     assert text.style == ""
@@ -642,7 +670,7 @@ foo = [
     result = test.with_indent_guides()
     print(result.plain)
     print(repr(result.plain))
-    expected = "for a in range(10):\n│   print(a)\n\nfoo = [\n│   1,\n│   {\n│   │   2\n│   }\n]\n"
+    expected = "for a in range(10):\n│   print(a)\n\nfoo = [\n│   1,\n│   {\n│   │   2\n│   }\n]\n\n"
     assert result.plain == expected
 
 
@@ -659,3 +687,47 @@ def test_slice():
 
     with pytest.raises(TypeError):
         text[::-1]
+
+
+def test_wrap_invalid_style():
+    # https://github.com/willmcgugan/rich/issues/987
+    console = Console(width=100, color_system="truecolor")
+    a = "[#######.................] xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [#######.................]"
+    console.print(a, justify="full")
+
+
+def test_apply_meta():
+    text = Text("foobar")
+    text.apply_meta({"foo": "bar"}, 1, 3)
+
+    console = Console()
+    assert text.get_style_at_offset(console, 0).meta == {}
+    assert text.get_style_at_offset(console, 1).meta == {"foo": "bar"}
+    assert text.get_style_at_offset(console, 2).meta == {"foo": "bar"}
+    assert text.get_style_at_offset(console, 3).meta == {}
+
+
+def test_on():
+    console = Console()
+    text = Text("foo")
+    text.on({"foo": "bar"}, click="CLICK")
+    expected = {"foo": "bar", "@click": "CLICK"}
+    assert text.get_style_at_offset(console, 0).meta == expected
+    assert text.get_style_at_offset(console, 1).meta == expected
+    assert text.get_style_at_offset(console, 2).meta == expected
+
+
+def test_markup_property():
+    assert Text("").markup == ""
+    assert Text("foo").markup == "foo"
+    assert Text("foo", style="bold").markup == "[bold]foo[/bold]"
+    assert Text.from_markup("foo [red]bar[/red]").markup == "foo [red]bar[/red]"
+    assert (
+        Text.from_markup("foo [red]bar[/red]", style="bold").markup
+        == "[bold]foo [red]bar[/red][/bold]"
+    )
+    assert (
+        Text.from_markup("[bold]foo [italic]bar[/bold] baz[/italic]").markup
+        == "[bold]foo [italic]bar[/bold] baz[/italic]"
+    )
+    assert Text("[bold]foo").markup == "\\[bold]foo"
